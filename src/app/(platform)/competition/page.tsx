@@ -28,11 +28,11 @@ interface TrainingData { experiments: ExperimentData[]; total: number; }
 export default function CompetitionPage() {
   const [currentStep, setCurrentStep] = useState(0);
 
-  const { data: datasetsRes, loading: loadingDatasets } = useApi<{ success: boolean; data: DatasetData[] }>("/api/datasets");
+  const { data: datasetsRes, loading: loadingDatasets } = useApi<DatasetData[]>("/api/datasets");
   const { data: modelsRes, loading: loadingModels } = useApi<{ models: ModelData[]; total: number }>("/api/models");
   const { data: trainingRes, loading: loadingTraining } = useApi<TrainingData>("/api/training");
 
-  const datasets = datasetsRes?.data || [];
+  const datasets = datasetsRes || [];
   const firstDatasetId = datasets[0]?.id || null;
 
   const { data: analyticsRes } = useApi<AnalyticsData>(firstDatasetId ? `/api/analytics?datasetId=${firstDatasetId}` : null);

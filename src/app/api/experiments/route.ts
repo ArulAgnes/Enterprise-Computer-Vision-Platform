@@ -10,10 +10,10 @@ import { eq, desc } from "drizzle-orm";
 export async function GET() {
   try {
     const allExperiments = await db.select().from(experiments).orderBy(desc(experiments.createdAt));
-    return NextResponse.json({ success: true, data: allExperiments });
+    return NextResponse.json(allExperiments);
   } catch (error) {
     console.error("[EXPERIMENT] Error listing experiments:", error);
-    return NextResponse.json({ success: false, error: "Failed to list experiments" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to list experiments" }, { status: 500 });
   }
 }
 
@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
       status: "created",
     }).returning();
 
-    return NextResponse.json({ success: true, data: newExperiment }, { status: 201 });
+    return NextResponse.json(newExperiment, { status: 201 });
   } catch (error) {
     console.error("[EXPERIMENT] Error creating experiment:", error);
     return NextResponse.json({ success: false, error: "Failed to create experiment" }, { status: 500 });

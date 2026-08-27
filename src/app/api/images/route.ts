@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
       ? await db.select().from(images).where(and(...conditions)).orderBy(desc(images.createdAt)).limit(limit).offset(offset)
       : await db.select().from(images).orderBy(desc(images.createdAt)).limit(limit).offset(offset);
 
-    return NextResponse.json({ success: true, data: result, meta: { limit, offset } });
+    return NextResponse.json(result);
   } catch (error) {
     console.error("[IMAGE] Error listing images:", error);
     return NextResponse.json({ success: false, error: "Failed to list images" }, { status: 500 });
@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
       classStatus: "unassigned",
     }).returning();
 
-    return NextResponse.json({ success: true, data: newImage }, { status: 201 });
+    return NextResponse.json(newImage, { status: 201 });
   } catch (error) {
     console.error("[IMAGE] Error creating image record:", error);
     return NextResponse.json({ success: false, error: "Failed to create image record" }, { status: 500 });

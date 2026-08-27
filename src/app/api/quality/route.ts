@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { db } from "@/db";
 import { images, qualityReports, datasets } from "@/db/schema";
 import { eq, sql, and } from "drizzle-orm";
-import { readFile, stat } from "fs/promises";
+import { readFile } from "fs/promises";
 import path from "path";
 
 export async function POST(request: NextRequest) {

@@ -363,3 +363,29 @@ export const activityLog = pgTable("activity_log", {
   userId: varchar("user_id", { length: 255 }),
   timestamp: timestamp("timestamp").defaultNow(),
 });
+
+// ============================================================
+// KAGGLE PUBLICATION
+// ============================================================
+
+export const kagglePublications = pgTable("kaggle_publications", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  datasetId: uuid("dataset_id").references(() => datasets.id),
+  datasetVersion: varchar("dataset_version", { length: 20 }),
+  kaggleUsername: varchar("kaggle_username", { length: 255 }),
+  kaggleSlug: varchar("kaggle_slug", { length: 255 }),
+  kaggleTitle: varchar("kaggle_title", { length: 500 }),
+  kaggleUrl: text("kaggle_url"),
+  status: varchar("status", { length: 50 }).default("not_published"),
+  publishedAt: timestamp("published_at"),
+  verifiedAt: timestamp("verified_at"),
+  lastError: text("last_error"),
+  exportDir: text("export_dir"),
+  notebookSlug: varchar("notebook_slug", { length: 255 }),
+  notebookUrl: text("notebook_url"),
+  notebookStatus: varchar("notebook_status", { length: 50 }).default("not_generated"),
+  notebookPublishedAt: timestamp("notebook_published_at"),
+  notebookVerifiedAt: timestamp("notebook_verified_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});

@@ -36,11 +36,6 @@ interface Experiment {
   createdAt?: string;
 }
 
-interface ExperimentsResponse {
-  success: boolean;
-  data: Experiment[];
-}
-
 function NoDataCard({ label }: { label: string }) {
   return (
     <div className="flex flex-col items-center justify-center py-12 text-[#64748b]">
@@ -71,9 +66,9 @@ function ErrorState({ message }: { message: string }) {
 export default function ExperimentsPage() {
   const [reproducing, setReproducing] = useState<string | null>(null);
 
-  const { data: experimentsData, loading, error, refetch } = useApi<ExperimentsResponse>("/api/experiments");
+  const { data: experimentsData, loading, error, refetch } = useApi<Experiment[]>("/api/experiments");
 
-  const experiments = experimentsData?.data || [];
+  const experiments = experimentsData || [];
 
   const handleReproduce = useCallback(async (exp: Experiment) => {
     setReproducing(exp.id);

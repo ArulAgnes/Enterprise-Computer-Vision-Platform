@@ -255,6 +255,12 @@ credentials.json
 service-account.json
 *-credentials.json
 
+# Kaggle
+.kaggle/
+kaggle.json
+access_token
+KAGGLE_API_TOKEN
+
 # ------------------------------------------------------------
 # OS / temporary files
 # ------------------------------------------------------------

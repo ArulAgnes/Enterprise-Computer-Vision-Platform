@@ -53,11 +53,11 @@ export default function ReportsPage() {
   const [reportMessage, setReportMessage] = useState<string | null>(null);
 
   const { data: modelsData } = useApi<{ models: Model[]; total: number }>("/api/models");
-  const { data: datasetsData } = useApi<{ datasets: Dataset[]; total: number }>("/api/datasets");
+  const { data: datasetsData } = useApi<Dataset[]>("/api/datasets");
   const { data: reportsData, refetch: refetchReports } = useApi<{ reports: ExistingReport[]; total: number }>("/api/reports");
 
   const models = modelsData?.models ?? [];
-  const datasets = datasetsData?.datasets ?? [];
+  const datasets = datasetsData ?? [];
   const existingReports = reportsData?.reports ?? [];
 
   const generateReport = async (rt: ReportType) => {

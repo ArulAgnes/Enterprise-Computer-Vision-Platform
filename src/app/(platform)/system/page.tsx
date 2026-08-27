@@ -4,8 +4,7 @@ import { useState, useEffect } from "react";
 import { Settings, Cpu, HardDrive, Monitor, Clock, ShieldCheck, Activity, Database, Info, RefreshCw, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { useApi } from "@/lib/hooks";
 
-interface HealthData { ok: boolean; }
-interface DatasetsData { success: boolean; data: Array<{ id: string; name: string }>; }
+interface HealthData { status: string; ok?: boolean; }
 interface ModelsData { models: Array<{ id: string; name: string; status: string }>; total: number; }
 interface TrainingData { experiments: Array<{ id: string; status: string }>; total: number; }
 
@@ -20,12 +19,12 @@ export default function SystemPage() {
   const [pytorchExists, setPytorchExists] = useState<boolean | null>(null);
 
   const { data: healthData, loading: healthLoading, refetch: refetchHealth } = useApi<HealthData>("/api/health");
-  const { data: datasetsRes, loading: datasetsLoading } = useApi<DatasetsData>("/api/datasets");
+  const { data: datasetsRes, loading: datasetsLoading } = useApi<Array<{ id: string; name: string }>>("/api/datasets");
   const { data: modelsRes, loading: modelsLoading } = useApi<ModelsData>("/api/models");
   const { data: trainingRes, loading: trainingLoading } = useApi<TrainingData>("/api/training");
 
-  const dbOk = healthData?.ok === true;
-  const datasetCount = datasetsRes?.data?.length ?? null;
+  const dbOk = healthData?.status === "ok";
+  const datasetCount = datasetsRes?.length ?? null;
   const modelCount = modelsRes?.total ?? null;
   const experimentCount = trainingRes?.total ?? null;
   const hasTrainingExperiments = (trainingRes?.experiments?.length ?? 0) > 0;

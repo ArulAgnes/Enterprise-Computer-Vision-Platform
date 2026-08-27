@@ -46,13 +46,19 @@ const navSections = [
       { href: "/system", icon: Settings, label: "System" },
     ],
   },
+  {
+    label: "Publication",
+    items: [
+      { href: "/kaggle", icon: Trophy, label: "Kaggle Publication" },
+    ],
+  },
 ];
 
 export default function PlatformLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
-    Overview: true, "Dataset Engineering": true, "AI & Training": true, "Registry & Reports": true,
+    Overview: true, "Dataset Engineering": true, "AI & Training": true, "Registry & Reports": true, "Publication": true,
   });
 
   const toggleSection = (label: string) => {
@@ -144,7 +150,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
             <span className="text-[10px] px-2 py-0.5 rounded badge-info font-mono">v1.0.0</span>
           </div>
           <div className="flex items-center gap-3">
-            <span className="text-[10px] px-2 py-0.5 rounded badge-warning">DEMO MODE</span>
+            <span className="text-[10px] px-2 py-0.5 rounded badge-success">REAL MODE</span>
             <span className="text-[10px] px-2 py-0.5 rounded badge-success">OFFLINE</span>
             <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
           </div>
