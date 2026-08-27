@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   db:
     image: postgres:16-alpine
@@ -26,6 +24,7 @@ services:
     environment:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/visionbharat
       NODE_ENV: production
+      KAGGLE_API_TOKEN: ${KAGGLE_API_TOKEN:-}
     depends_on:
       db:
         condition: service_healthy
@@ -33,9 +32,15 @@ services:
       - uploads:/app/uploads
       - checkpoints:/app/checkpoints
       - reports:/app/reports
+      - logs:/app/logs
+      - datasets:/app/datasets
+      - exports:/app/exports
 
 volumes:
   pgdata:
   uploads:
   checkpoints:
   reports:
+  logs:
+  datasets:
+  exports:
