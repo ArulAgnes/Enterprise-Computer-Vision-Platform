@@ -1,12 +1,14 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Trophy, CheckCircle2, XCircle, ExternalLink, Loader2,
   Database, ShieldCheck, Upload, Globe, AlertCircle, Info,
   FileText, BookOpen
 } from "lucide-react";
 import { useApi, apiPost } from "@/lib/hooks";
+import { useWorkflowState } from "@/lib/useWorkflowState";
+import { NextStepCard, HelpCard, PageHeader, InfoBar } from "@/components/workflow";
 
 interface KaggleStatus {
   configured: boolean;
@@ -82,6 +84,7 @@ export default function KagglePage() {
     useApi<Dataset[]>("/api/datasets");
 
   const [selectedDatasetId, setSelectedDatasetId] = useState<string>("");
+  const { state: workflow } = useWorkflowState();
   const [slug, setSlug] = useState("visionbharat-indian-lamps");
   const [title, setTitle] = useState("VisionBharat — Traditional Indian Lamps & Ritual Objects");
   const [description, setDescription] = useState(
@@ -106,8 +109,10 @@ export default function KagglePage() {
   const datasetsArray = Array.isArray(datasetsData) ? datasetsData : [];
   const status = kaggleStatus;
 
+  const initializedRef = useRef(false);
   useEffect(() => {
-    if (datasetsArray.length > 0 && !selectedDatasetId) {
+    if (!initializedRef.current && datasetsArray.length > 0 && !selectedDatasetId) {
+      initializedRef.current = true;
       setSelectedDatasetId(datasetsArray[0].id);
     }
   }, [datasetsArray, selectedDatasetId]);
@@ -207,14 +212,7 @@ export default function KagglePage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-bold flex items-center gap-2">
-          <Trophy className="w-5 h-5 text-amber-400" /> Kaggle Publication
-        </h1>
-        <p className="text-sm text-[#94a3b8]">
-          Publish your validated dataset to Kaggle for DataGenesis 2026 Round 1
-        </p>
-      </div>
+      <PageHeader title="Kaggle Publication" subtitle="Export and publish your dataset for DataGenesis 2026" step={12} totalSteps={15} />
 
       {/* What is Kaggle? */}
       <div className="glass-card-solid p-4 border border-blue-500/20">
@@ -491,6 +489,17 @@ export default function KagglePage() {
           ))}
         </div>
       </div>
+
+      {workflow && <NextStepCard currentStep={workflow.currentStep} completedSteps={workflow.completedSteps} />}
+
+<HelpCard title="What is Kaggle?">
+  <p className="mb-2">Kaggle is where you publish your dataset for DataGenesis Round 1. The publication includes:</p>
+  <ul className="list-disc list-inside space-y-1 mb-2">
+    <li><strong>Dataset:</strong> Your images, annotations, and metadata</li>
+    <li><strong>Notebook:</strong> A Kaggle notebook showing your training pipeline</li>
+  </ul>
+  <p>Make sure your dataset passes all quality checks before publishing.</p>
+</HelpCard>
     </div>
   );
 }

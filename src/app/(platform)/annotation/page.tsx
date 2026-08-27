@@ -3,6 +3,8 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { PenTool, ZoomIn, ZoomOut, Move, Trash2, Undo2, Redo2, ChevronLeft, ChevronRight, Save, Square, MousePointer, Image, Tag, Hash, Grid3X3, Loader2, Database, XCircle } from "lucide-react";
 import { useApi, apiPost, apiDelete, apiPut } from "@/lib/hooks";
+import { useWorkflowState } from "@/lib/useWorkflowState";
+import { NextStepCard, HelpCard, PageHeader, InfoBar } from "@/components/workflow";
 
 interface ImageRecord {
   id: string;
@@ -66,6 +68,7 @@ export default function AnnotationPage() {
   const [drawStart, setDrawStart] = useState<{ x: number; y: number } | null>(null);
   const [drawRect, setDrawRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const [undoStack, setUndoStack] = useState<AnnotationRecord[][]>([]);
+  const { state: workflow, refetch: refetchWorkflow } = useWorkflowState();
   const canvasRef = useRef<HTMLDivElement>(null);
 
   const imagesUrl = datasetId ? `/api/images?datasetId=${datasetId}&limit=500` : null;
@@ -163,12 +166,13 @@ export default function AnnotationPage() {
         }
       }
       refetchAnnotations();
+      refetchWorkflow();
     } catch (err) {
       console.error("Save failed:", err);
     } finally {
       setIsSaving(false);
     }
-  }, [currentImage, annotations, effectiveCanvasSize, refetchAnnotations]);
+  }, [currentImage, annotations, effectiveCanvasSize, refetchAnnotations, refetchWorkflow]);
 
   const deleteAnnotation = useCallback(async (ann: AnnotationRecord) => {
     setUndoStack(prev => [...prev, [...annotations]]);
@@ -217,10 +221,7 @@ export default function AnnotationPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold">Annotation Studio</h1>
-          <p className="text-sm text-[#94a3b8]">Draw bounding boxes and assign class labels</p>
-        </div>
+        <PageHeader title="Annotation Studio" subtitle="Draw bounding boxes and assign class labels" step={4} totalSteps={15} />
         <div className="flex items-center gap-2">
           <input
             type="text"
@@ -448,6 +449,15 @@ export default function AnnotationPage() {
           </div>
         </div>
       </div>
+
+      {workflow && <NextStepCard currentStep={workflow.currentStep} completedSteps={workflow.completedSteps} />}
+
+      <HelpCard title="How annotation works">
+        <p className="mb-2"><strong>Step 1:</strong> Select an image from the navigation.</p>
+        <p className="mb-2"><strong>Step 2:</strong> Draw a box around each object you want the model to detect.</p>
+        <p className="mb-2"><strong>Step 3:</strong> Choose the object&apos;s class from the left panel.</p>
+        <p><strong>Step 4:</strong> Click Save to store your annotations in the database.</p>
+      </HelpCard>
     </div>
   );
 }

@@ -8,6 +8,8 @@ import {
   BookOpen, Settings, Trophy, ChevronDown, Zap
 } from "lucide-react";
 import { useState } from "react";
+import { WorkflowStepper } from "@/components/workflow";
+import { useWorkflowState } from "@/lib/useWorkflowState";
 
 const navSections = [
   {
@@ -60,6 +62,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     Overview: true, "Dataset Engineering": true, "AI & Training": true, "Registry & Reports": true, "Publication": true,
   });
+  const { state: workflowState } = useWorkflowState();
 
   const toggleSection = (label: string) => {
     setExpandedSections(prev => ({ ...prev, [label]: !prev[label] }));
@@ -142,18 +145,26 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
       {/* Main Content */}
       <main className="flex-1 overflow-auto">
         {/* Top Bar */}
-        <header className="sticky top-0 z-10 bg-[#0a0e17]/80 backdrop-blur-lg border-b border-[#1a2540] px-6 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <h2 className="text-sm font-semibold">
-              {navSections.flatMap(s => s.items).find(i => i.href === pathname)?.label || "VisionBharat"}
-            </h2>
-            <span className="text-[10px] px-2 py-0.5 rounded badge-info font-mono">v1.0.0</span>
+        <header className="sticky top-0 z-10 bg-[#0a0e17]/80 backdrop-blur-lg border-b border-[#1a2540] px-6 py-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-4">
+              <h2 className="text-sm font-semibold">
+                {navSections.flatMap(s => s.items).find(i => i.href === pathname)?.label || "VisionBharat"}
+              </h2>
+              <span className="text-[10px] px-2 py-0.5 rounded badge-info font-mono">v1.0.0</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-[10px] px-2 py-0.5 rounded badge-success">REAL MODE</span>
+              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            </div>
           </div>
-          <div className="flex items-center gap-3">
-            <span className="text-[10px] px-2 py-0.5 rounded badge-success">REAL MODE</span>
-            <span className="text-[10px] px-2 py-0.5 rounded badge-success">OFFLINE</span>
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-          </div>
+          {workflowState && (
+            <WorkflowStepper
+              currentStep={workflowState.currentStep}
+              completedSteps={workflowState.completedSteps}
+              compact
+            />
+          )}
         </header>
 
         <div className="p-6 animate-fade-in">

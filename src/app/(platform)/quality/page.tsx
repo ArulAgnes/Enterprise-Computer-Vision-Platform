@@ -4,6 +4,8 @@ import { useState } from "react";
 import { ShieldCheck, AlertTriangle, CheckCircle2, XCircle, Eye, Copy, Search, Filter, Image, Layers, Database, AlertCircle, Loader2 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { useApi, apiPost } from "@/lib/hooks";
+import { useWorkflowState } from "@/lib/useWorkflowState";
+import { NextStepCard, HelpCard, PageHeader, InfoBar } from "@/components/workflow";
 
 interface Dataset {
   id: string;
@@ -102,6 +104,7 @@ function ErrorState({ message }: { message: string }) {
 export default function QualityPage() {
   const [selectedDatasetId, setSelectedDatasetId] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
+  const { state: workflow, refetch: refetchWorkflow } = useWorkflowState();
 
   const { data: datasets, loading: datasetsLoading } = useApi<Dataset[]>("/api/datasets");
 
@@ -158,6 +161,7 @@ export default function QualityPage() {
       await apiPost("/api/quality", { datasetId: effectiveDatasetId });
       await refetchQuality();
       await refetchDuplicates();
+      refetchWorkflow();
     } catch (err) {
       console.error("Quality analysis failed:", err);
     } finally {
@@ -168,10 +172,7 @@ export default function QualityPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold">Quality Control</h1>
-          <p className="text-sm text-[#94a3b8]">Image quality analysis, duplicate detection, and validation</p>
-        </div>
+        <PageHeader title="Quality Control" subtitle="Check image quality and validate your dataset" step={5} totalSteps={15} />
         <div className="flex items-center gap-2">
           <select
             className="bg-[#111827] border border-[#2a3550] rounded px-3 py-1.5 text-xs text-[#94a3b8]"
@@ -324,6 +325,18 @@ export default function QualityPage() {
           </div>
         </>
       )}
+      {workflow && <NextStepCard currentStep={workflow.currentStep} completedSteps={workflow.completedSteps} />}
+
+<HelpCard title="What is quality control?">
+  <p className="mb-2">Quality control checks your images for problems that could hurt model training:</p>
+  <ul className="list-disc list-inspace space-y-1 mb-2">
+    <li><strong>Blur:</strong> Blurry images are hard for the model to learn from</li>
+    <li><strong>Brightness:</strong> Too dark or overexposed images</li>
+    <li><strong>Duplicates:</strong> Same image appearing twice</li>
+    <li><strong>Resolution:</strong> Very small images</li>
+  </ul>
+  <p>Click &quot;Run Analysis&quot; to scan your dataset. Fix any red-flagged images before proceeding.</p>
+</HelpCard>
     </div>
   );
 }

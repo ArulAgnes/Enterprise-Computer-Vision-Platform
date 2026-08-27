@@ -3,6 +3,8 @@
 import { useState, useRef, useCallback } from "react";
 import { ScanSearch, Upload, Camera, Image, Clock, Cpu, Box, Tag, Zap, Eye, Download, Layers } from "lucide-react";
 import { useApi, apiPost, apiUpload } from "@/lib/hooks";
+import { useWorkflowState } from "@/lib/useWorkflowState";
+import { NextStepCard, HelpCard, PageHeader, EmptyState } from "@/components/workflow";
 
 interface Model {
   id: string;
@@ -52,6 +54,7 @@ const DETECTION_COLORS = ["#10b981", "#f97316", "#f59e0b", "#3b82f6", "#ef4444",
 
 export default function InferencePage() {
   const [threshold, setThreshold] = useState(0.5);
+  const { state: workflow } = useWorkflowState();
   const [dragOver, setDragOver] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -136,25 +139,7 @@ export default function InferencePage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold">Inference Studio</h1>
-          <p className="text-sm text-[#94a3b8]">Run object detection on unseen images using the trained model</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <label className="text-xs text-[#94a3b8]">Confidence Threshold:</label>
-          <input
-            type="range"
-            min="0.1"
-            max="0.95"
-            step="0.05"
-            value={threshold}
-            onChange={(e) => setThreshold(parseFloat(e.target.value))}
-            className="w-32 accent-blue-500"
-          />
-          <span className="text-xs font-mono w-8">{threshold.toFixed(2)}</span>
-        </div>
-      </div>
+      <PageHeader title="Inference Studio" subtitle="Test your trained model on new images" step={11} totalSteps={15} />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-4">
@@ -314,7 +299,14 @@ export default function InferencePage() {
                         <div className="flex items-center gap-2">
                           <span className="w-3 h-3 rounded-sm" style={{ background: color }} />
                           <span className="text-xs font-semibold">{det.className}</span>
-                        </div>
+      {workflow && <NextStepCard currentStep={workflow.currentStep} completedSteps={workflow.completedSteps} />}
+
+<HelpCard title="What is inference?">
+  <p className="mb-2">Inference is when you use your trained model to detect objects in new images.</p>
+  <p className="mb-2">Upload an image and the model will draw bounding boxes around detected objects with confidence scores.</p>
+  <p>If no trained model exists yet, you&apos;ll need to complete training first.</p>
+</HelpCard>
+    </div>
                         <span className="text-xs font-mono font-bold" style={{ color: color }}>
                           {(det.confidence * 100).toFixed(1)}%
                         </span>

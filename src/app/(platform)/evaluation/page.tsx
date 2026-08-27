@@ -4,6 +4,8 @@ import { useState } from "react";
 import { Target, ShieldCheck, AlertTriangle, CheckCircle2, BarChart3 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { useApi, apiPost } from "@/lib/hooks";
+import { useWorkflowState } from "@/lib/useWorkflowState";
+import { NextStepCard, HelpCard, PageHeader } from "@/components/workflow";
 
 interface PerClassMetric {
   name: string;
@@ -62,6 +64,7 @@ function computePerClassMetrics(matrix: number[][], classNames: string[]): PerCl
 
 export default function EvaluationPage() {
   const [iouThreshold, setIouThreshold] = useState(0.5);
+  const { state: workflow } = useWorkflowState();
   const [selectedModelId, setSelectedModelId] = useState<string>("");
   const [runningEval, setRunningEval] = useState(false);
   const [evalMessage, setEvalMessage] = useState<string | null>(null);
@@ -123,10 +126,7 @@ export default function EvaluationPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold">Evaluation</h1>
-          <p className="text-sm text-[#94a3b8]">Model performance metrics, confusion matrix, and per-class analysis</p>
-        </div>
+        <PageHeader title="Model Evaluation" subtitle="Measure how well your model performs on unseen data" step={10} totalSteps={15} />
         <div className="flex items-center gap-3">
           {!modelsLoading && models.length > 0 && (
             <select
@@ -302,6 +302,17 @@ export default function EvaluationPage() {
           </div>
         </>
       )}
+      {workflow && <NextStepCard currentStep={workflow.currentStep} completedSteps={workflow.completedSteps} />}
+
+<HelpCard title="What is evaluation?">
+  <p className="mb-2">Evaluation measures your model&apos;s performance on test images it has never seen during training.</p>
+  <p className="mb-2"><strong>Key metrics:</strong></p>
+  <ul className="list-disc list-inside space-y-1">
+    <li><strong>Precision:</strong> How many detected objects are correct</li>
+    <li><strong>Recall:</strong> How many real objects were found</li>
+    <li><strong>IoU:</strong> How accurately the boxes overlap with real objects</li>
+  </ul>
+</HelpCard>
     </div>
   );
 }

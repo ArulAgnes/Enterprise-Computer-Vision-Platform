@@ -4,6 +4,8 @@ import { useState } from "react";
 import { Brain, Play, Square, Settings, Cpu, Clock, Activity, TrendingUp, Layers, Zap, CheckCircle2, AlertTriangle, Monitor, Database, AlertCircle, Loader2 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend, BarChart, Bar } from "recharts";
 import { useApi, apiPost } from "@/lib/hooks";
+import { useWorkflowState } from "@/lib/useWorkflowState";
+import { NextStepCard, HelpCard, PageHeader, InfoBar, EmptyState } from "@/components/workflow";
 
 interface Dataset {
   id: string;
@@ -116,6 +118,7 @@ export default function TrainingPage() {
   const [selectedExperimentId, setSelectedExperimentId] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
+  const { state: workflow, refetch: refetchWorkflow } = useWorkflowState();
 
   const { data: datasets, loading: datasetsLoading } = useApi<Dataset[]>("/api/datasets");
   const datasetsArray = Array.isArray(datasets) ? datasets : [];
@@ -151,6 +154,10 @@ export default function TrainingPage() {
 
   const handleStartTraining = async () => {
     if (!effectiveDatasetId) return;
+    if (workflow && workflow.annotatedImages === 0) {
+      alert("No annotated images available. Add and annotate images first.");
+      return;
+    }
     setStarting(true);
     try {
       const result = await apiPost<{ data: TrainingExperiment }>("/api/training", {
@@ -197,10 +204,7 @@ export default function TrainingPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold">Training Lab</h1>
-          <p className="text-sm text-[#94a3b8]">Configure, launch, and monitor model training from scratch</p>
-        </div>
+        <PageHeader title="Training Lab" subtitle="Train your model from scratch — no pretrained weights" step={9} totalSteps={15} />
         <div className="flex items-center gap-2">
           <select
             className="bg-[#111827] border border-[#2a3550] rounded px-3 py-1.5 text-xs text-[#94a3b8]"
@@ -424,6 +428,19 @@ export default function TrainingPage() {
           </p></div>
         </div>
       </div>
+      {workflow && <NextStepCard currentStep={workflow.currentStep} completedSteps={workflow.completedSteps} />}
+
+<HelpCard title="How training works">
+  <p className="mb-2">Training adjusts the model so it learns patterns from your annotated images.</p>
+  <p className="mb-2"><strong>Important for DataGenesis 2026:</strong></p>
+  <ul className="list-disc list-inside space-y-1 mb-2">
+    <li>No pretrained weights used</li>
+    <li>No transfer learning</li>
+    <li>All weights initialized randomly</li>
+    <li>Model trained exclusively on your team&apos;s dataset</li>
+  </ul>
+  <p>Training may take several minutes depending on your hardware and dataset size.</p>
+</HelpCard>
     </div>
   );
 }
