@@ -23,6 +23,7 @@ import os
 import json
 import time
 import logging
+import argparse
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
@@ -188,11 +189,16 @@ class Trainer:
         
         for batch in train_loader:
             images = batch['image'].to(self.device)
+            targets = [
+                {'boxes': batch['boxes'][i].to(self.device),
+                 'class_ids': batch['class_ids'][i].to(self.device)}
+                for i in range(images.shape[0])
+            ]
             
             self.optimizer.zero_grad()
             
             predictions = self.model(images)
-            loss, box_l, obj_l, cls_l = self.criterion(predictions, None)
+            loss, box_l, obj_l, cls_l = self.criterion(predictions, targets)
             
             loss.backward()
             self.optimizer.step()
@@ -220,8 +226,13 @@ class Trainer:
         with torch.no_grad():
             for batch in val_loader:
                 images = batch['image'].to(self.device)
+                targets = [
+                    {'boxes': batch['boxes'][i].to(self.device),
+                     'class_ids': batch['class_ids'][i].to(self.device)}
+                    for i in range(images.shape[0])
+                ]
                 predictions = self.model(images)
-                loss, _, _, _ = self.criterion(predictions, None)
+                loss, _, _, _ = self.criterion(predictions, targets)
                 total_loss += loss.item()
                 num_batches += 1
         
@@ -305,33 +316,111 @@ class Trainer:
 
 
 def main():
-    """Main training entry point"""
+    """Main training entry point with argument parsing"""
+    parser = argparse.ArgumentParser(description="VisionBharat Training Pipeline")
+    parser.add_argument("--dataset_root", type=str, required=True,
+                        help="Root directory of dataset (should contain images/ and labels/ subdirs)")
+    parser.add_argument("--num_classes", type=int, default=8)
+    parser.add_argument("--image_size", type=int, default=640)
+    parser.add_argument("--batch_size", type=int, default=16)
+    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--learning_rate", type=float, default=0.001)
+    parser.add_argument("--weight_decay", type=float, default=0.0005)
+    parser.add_argument("--optimizer", type=str, default="adam", choices=["adam", "sgd"])
+    parser.add_argument("--box_weight", type=float, default=5.0)
+    parser.add_argument("--obj_weight", type=float, default=1.0)
+    parser.add_argument("--cls_weight", type=float, default=1.0)
+    parser.add_argument("--iou_threshold", type=float, default=0.5)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--checkpoint_dir", type=str, default="checkpoints")
+    parser.add_argument("--class_names", type=str, nargs="+",
+                        default=["diya", "lamp", "bell", "conch", "kalash", "flower", "incense", "vermillion"])
+    args = parser.parse_args()
+
     config = {
-        'num_classes': 8,
-        'image_size': 640,
-        'batch_size': 16,
-        'epochs': 100,
-        'learning_rate': 0.001,
-        'optimizer': 'adam',
-        'weight_decay': 0.0005,
-        'box_weight': 5.0,
-        'obj_weight': 1.0,
-        'cls_weight': 1.0,
-        'iou_threshold': 0.5,
-        'seed': 42,
+        'num_classes': args.num_classes,
+        'image_size': args.image_size,
+        'batch_size': args.batch_size,
+        'epochs': args.epochs,
+        'learning_rate': args.learning_rate,
+        'optimizer': args.optimizer,
+        'weight_decay': args.weight_decay,
+        'box_weight': args.box_weight,
+        'obj_weight': args.obj_weight,
+        'cls_weight': args.cls_weight,
+        'iou_threshold': args.iou_threshold,
+        'seed': args.seed,
     }
-    
-    trainer = Trainer(config)
-    
-    # In production, create DataLoaders from actual dataset
-    # train_dataset = DetectionDataset("datasets/images/train", "datasets/labels/train", ...)
-    # val_dataset = DetectionDataset("datasets/images/validation", "datasets/labels/validation", ...)
-    
-    print(f"\n[VisionBharat] Training Configuration:")
+
+    logger.info(f"[VisionBharat] Training Configuration:")
     for k, v in config.items():
-        print(f"  {k}: {v}")
-    print(f"\n[VisionBharat] ⚠ IMPORTANT: Training FROM SCRATCH with RANDOM initialization")
-    print(f"[VisionBharat] ⚠ NO pretrained weights will be used")
+        logger.info(f"  {k}: {v}")
+    logger.info(f"[VisionBharat] ⚠ TRAINING FROM SCRATCH — NO PRETRAINED WEIGHTS")
+
+    dataset_root = Path(args.dataset_root)
+    train_img_dir = dataset_root / "images" / "train"
+    train_lbl_dir = dataset_root / "labels" / "train"
+    val_img_dir = dataset_root / "images" / "val"
+    val_lbl_dir = dataset_root / "labels" / "val"
+
+    for d in [train_img_dir, train_lbl_dir, val_img_dir, val_lbl_dir]:
+        if not d.exists():
+            logger.error(f"[Dataset] Directory not found: {d}")
+            raise FileNotFoundError(f"Dataset directory not found: {d}")
+
+    train_dataset = DetectionDataset(
+        image_dir=str(train_img_dir),
+        label_dir=str(train_lbl_dir),
+        class_names=args.class_names,
+        image_size=args.image_size,
+    )
+    val_dataset = DetectionDataset(
+        image_dir=str(val_img_dir),
+        label_dir=str(val_lbl_dir),
+        class_names=args.class_names,
+        image_size=args.image_size,
+    )
+
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=args.batch_size,
+        shuffle=True,
+        num_workers=0,
+        collate_fn=lambda batch: {
+            'image': torch.stack([b['image'] for b in batch]),
+            'boxes': [b['boxes'] for b in batch],
+            'class_ids': [b['class_ids'] for b in batch],
+        },
+    )
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=0,
+        collate_fn=lambda batch: {
+            'image': torch.stack([b['image'] for b in batch]),
+            'boxes': [b['boxes'] for b in batch],
+            'class_ids': [b['class_ids'] for b in batch],
+        },
+    )
+
+    logger.info(f"[Dataset] Train: {len(train_dataset)} images, Val: {len(val_dataset)} images")
+
+    trainer = Trainer(config)
+
+    try:
+        trainer.train(
+            train_loader=train_loader,
+            val_loader=val_loader,
+            num_epochs=args.epochs,
+            checkpoint_dir=args.checkpoint_dir,
+        )
+    except KeyboardInterrupt:
+        logger.info("[Training] Interrupted by user. Saving current state...")
+        trainer.save_checkpoint(os.path.join(args.checkpoint_dir, "vb-cv-interrupted.pt"))
+    except Exception as e:
+        logger.error(f"[Training] Error: {e}")
+        raise
 
 
 if __name__ == "__main__":

@@ -230,7 +230,7 @@ class DetectionLoss(nn.Module):
     
     L_box = 1 - GIoU (Generalized Intersection over Union)
     L_obj = BCE(p_obj, t_obj) (Binary Cross-Entropy for objectness)
-    L_cls = CE(p_cls, t_cls) (Cross-Entropy for classification)
+    L_cls = BCE(p_cls, t_cls) (Binary Cross-Entropy for multi-label classification)
     """
     
     def __init__(self, num_classes: int = 8, 
@@ -244,60 +244,184 @@ class DetectionLoss(nn.Module):
         self.obj_weight = obj_weight
         self.cls_weight = cls_weight
         self.iou_threshold = iou_threshold
-        self.bce = nn.BCEWithLogitsLoss(reduction='none')
-        self.ce = nn.CrossEntropyLoss(reduction='none')
+        self.bce_obj = nn.BCEWithLogitsLoss(reduction='none')
+        self.bce_cls = nn.BCEWithLogitsLoss(reduction='none')
     
-    def compute_giou(self, boxes1: torch.Tensor, boxes2: torch.Tensor) -> torch.Tensor:
+    @staticmethod
+    def _ciou_loss(pred_boxes: torch.Tensor, target_boxes: torch.Tensor) -> torch.Tensor:
         """
-        Compute Generalized IoU
-        
-        GIoU = IoU - (C - union) / C
-        where C is the area of the smallest enclosing box
-        
-        Args:
-            boxes1: (N, 4) predicted boxes [x1, y1, x2, y2]
-            boxes2: (N, 4) target boxes [x1, y1, x2, y2]
+        Compute CIoU loss between predicted and target boxes.
+        Both inputs: (N, 4) in cx, cy, w, h normalized format.
+        Returns scalar loss = 1 - CIoU.
         """
-        # Intersection
-        inter_x1 = torch.max(boxes1[:, 0], boxes2[:, 0])
-        inter_y1 = torch.max(boxes1[:, 1], boxes2[:, 1])
-        inter_x2 = torch.min(boxes1[:, 2], boxes2[:, 2])
-        inter_y2 = torch.min(boxes1[:, 3], boxes2[:, 3])
-        
+        pred_x1 = pred_boxes[:, 0] - pred_boxes[:, 2] / 2
+        pred_y1 = pred_boxes[:, 1] - pred_boxes[:, 3] / 2
+        pred_x2 = pred_boxes[:, 0] + pred_boxes[:, 2] / 2
+        pred_y2 = pred_boxes[:, 1] + pred_boxes[:, 3] / 2
+
+        tgt_x1 = target_boxes[:, 0] - target_boxes[:, 2] / 2
+        tgt_y1 = target_boxes[:, 1] - target_boxes[:, 3] / 2
+        tgt_x2 = target_boxes[:, 0] + target_boxes[:, 2] / 2
+        tgt_y2 = target_boxes[:, 1] + target_boxes[:, 3] / 2
+
+        inter_x1 = torch.max(pred_x1, tgt_x1)
+        inter_y1 = torch.max(pred_y1, tgt_y1)
+        inter_x2 = torch.min(pred_x2, tgt_x2)
+        inter_y2 = torch.min(pred_y2, tgt_y2)
+
         inter_area = (inter_x2 - inter_x1).clamp(min=0) * (inter_y2 - inter_y1).clamp(min=0)
-        
-        area1 = (boxes1[:, 2] - boxes1[:, 0]) * (boxes1[:, 3] - boxes1[:, 1])
-        area2 = (boxes2[:, 2] - boxes2[:, 0]) * (boxes2[:, 3] - boxes2[:, 1])
-        union_area = area1 + area2 - inter_area + 1e-7
-        
+
+        pred_area = pred_boxes[:, 2] * pred_boxes[:, 3]
+        tgt_area = target_boxes[:, 2] * target_boxes[:, 3]
+        union_area = pred_area + tgt_area - inter_area + 1e-7
+
         iou = inter_area / union_area
+
+        enc_x1 = torch.min(pred_x1, tgt_x1)
+        enc_y1 = torch.min(pred_y1, tgt_y1)
+        enc_x2 = torch.max(pred_x2, tgt_x2)
+        enc_y2 = torch.max(pred_y2, tgt_y2)
+        enc_diag = (enc_x2 - enc_x1) ** 2 + (enc_y2 - enc_y1) ** 2 + 1e-7
+
+        center_dist = (pred_boxes[:, 0] - target_boxes[:, 0]) ** 2 + \
+                      (pred_boxes[:, 1] - target_boxes[:, 1]) ** 2
+
+        v = (4 / math.pi ** 2) * (torch.atan(target_boxes[:, 2] / (target_boxes[:, 3] + 1e-7)) -
+                                    torch.atan(pred_boxes[:, 2] / (pred_boxes[:, 3] + 1e-7))) ** 2
+        with torch.no_grad():
+            alpha = v / (1 - iou + v + 1e-7)
+
+        ciou = iou - center_dist / enc_diag - alpha * v
+        return (1 - ciou).mean()
+    
+    def _assign_targets_for_scale(self, targets, H, W, num_anchors, device):
+        """
+        Assign ground truth targets to grid cells for one scale.
         
-        # Enclosing box
-        enc_x1 = torch.min(boxes1[:, 0], boxes2[:, 0])
-        enc_y1 = torch.min(boxes1[:, 1], boxes2[:, 1])
-        enc_x2 = torch.max(boxes1[:, 2], boxes2[:, 2])
-        enc_y2 = torch.max(boxes1[:, 3], boxes2[:, 3])
-        enc_area = (enc_x2 - enc_x1) * (enc_y2 - enc_y1) + 1e-7
+        Returns:
+            obj_target: (B, H, W, num_anchors) objectness target
+            box_target: (B, H, W, num_anchors, 4) box regression target
+            cls_target: (B, H, W, num_anchors, num_classes) class target
+        """
+        B = len(targets)
+        obj_target = torch.zeros(B, H, W, num_anchors, device=device)
+        box_target = torch.zeros(B, H, W, num_anchors, 4, device=device)
+        cls_target = torch.zeros(B, H, W, num_anchors, self.num_classes, device=device)
         
-        giou = iou - (enc_area - union_area) / enc_area
-        return giou
+        for b in range(B):
+            gt_boxes = targets[b]['boxes']
+            gt_classes = targets[b]['class_ids']
+            
+            if gt_boxes.shape[0] == 0:
+                continue
+            
+            for gt_idx in range(gt_boxes.shape[0]):
+                gt_cx, gt_cy, gt_w, gt_h = gt_boxes[gt_idx].tolist()
+                gt_cls = int(gt_classes[gt_idx].item())
+                
+                gi = int(min(max(gt_cx * W, 0), W - 1))
+                gj = int(min(max(gt_cy * H, 0), H - 1))
+                
+                best_iou = -1.0
+                best_a = 0
+                for a in range(num_anchors):
+                    anchor_w = 0.1 * (2 ** a)
+                    anchor_h = 0.1 * (2 ** a)
+                    inter_w = max(min(gt_cx + gt_w / 2, anchor_w / 2) - max(gt_cx - gt_w / 2, -anchor_w / 2), 0)
+                    inter_h = max(min(gt_cy + gt_h / 2, anchor_h / 2) - max(gt_cy - gt_h / 2, -anchor_h / 2), 0)
+                    inter_area = inter_w * inter_h
+                    union_area = gt_w * gt_h + anchor_w * anchor_h - inter_area + 1e-7
+                    iou = inter_area / union_area
+                    if iou > best_iou:
+                        best_iou = iou
+                        best_a = a
+                
+                obj_target[b, gj, gi, best_a] = 1.0
+                cls_target[b, gj, gi, best_a, gt_cls] = 1.0
+                box_target[b, gj, gi, best_a, 0] = gt_cx
+                box_target[b, gj, gi, best_a, 1] = gt_cy
+                box_target[b, gj, gi, best_a, 2] = gt_w
+                box_target[b, gj, gi, best_a, 3] = gt_h
+        
+        return obj_target, box_target, cls_target
     
     def forward(self, predictions, targets):
         """
-        Compute total detection loss
+        Compute total detection loss.
+        
+        predictions: list of 3 tuples (obj, box, cls) from detection heads.
+                     obj: (B, num_anchors, H, W)
+                     box: (B, num_anchors*4, H, W) 
+                     cls: (B, num_anchors*num_classes, H, W)
+        targets: list of B dicts, each with 'boxes' (N,4) and 'class_ids' (N,)
         
         Returns: (total_loss, box_loss, obj_loss, cls_loss)
         """
-        # Placeholder for actual loss computation with target matching
-        # In full implementation, this would match predictions to targets
-        # using IoU and compute each loss component
-        box_loss = torch.tensor(0.0, device=predictations[0][0].device)
-        obj_loss = torch.tensor(0.0, device=predictions[0][0].device)
-        cls_loss = torch.tensor(0.0, device=predictions[0][0].device)
+        device = predictions[0][0].device
+        num_scales = len(predictions)
+        total_box_loss = torch.tensor(0.0, device=device)
+        total_obj_loss = torch.tensor(0.0, device=device)
+        total_cls_loss = torch.tensor(0.0, device=device)
         
-        total_loss = self.box_weight * box_loss + self.obj_weight * obj_loss + self.cls_weight * cls_loss
+        for scale_idx, (pred_obj, pred_box, pred_cls) in enumerate(predictions):
+            B = pred_obj.shape[0]
+            A = self.num_anchors if hasattr(self, 'num_anchors') else pred_obj.shape[1]
+            num_anchors = pred_obj.shape[1]
+            H, W = pred_obj.shape[2], pred_obj.shape[3]
+            num_classes = pred_cls.shape[1] // num_anchors
+            
+            # Reshape from Conv2d output to (B, A, H, W, ...)
+            pred_obj = pred_obj.reshape(B, num_anchors, H, W, 1)
+            pred_box = pred_box.reshape(B, num_anchors, H, W, 4)
+            pred_cls = pred_cls.reshape(B, num_anchors, H, W, num_classes)
+            
+            obj_target, box_target, cls_target = self._assign_targets_for_scale(
+                targets, H, W, A, device
+            )
+            
+            # Reshape to (B, H*W*A, ...)
+            pred_obj_flat = pred_obj.reshape(B, -1, 1)
+            pred_box_flat = pred_box.reshape(B, -1, 4)
+            pred_cls_flat = pred_cls.reshape(B, -1, num_classes)
+            
+            obj_target_flat = obj_target.reshape(B, -1, 1)
+            box_target_flat = box_target.reshape(B, -1, 4)
+            cls_target_flat = cls_target.reshape(B, -1, num_classes)
+            
+            # Objectness loss
+            obj_loss = self.bce_obj(pred_obj_flat, obj_target_flat).mean()
+            
+            # Positive mask
+            pos_mask = obj_target.reshape(B, -1) > 0
+            
+            if pos_mask.sum() > 0:
+                box_loss = self._ciou_loss(
+                    pred_box_flat[pos_mask],
+                    box_target_flat[pos_mask]
+                )
+                cls_loss = self.bce_cls(
+                    pred_cls_flat[pos_mask],
+                    cls_target_flat[pos_mask]
+                ).mean()
+            else:
+                box_loss = torch.tensor(0.0, device=device)
+                cls_loss = torch.tensor(0.0, device=device)
+            
+            total_box_loss += box_loss
+            total_obj_loss += obj_loss
+            total_cls_loss += cls_loss
         
-        return total_loss, box_loss, obj_loss, cls_loss
+        total_box_loss /= num_scales
+        total_obj_loss /= num_scales
+        total_cls_loss /= num_scales
+        
+        total_loss = (
+            self.box_weight * total_box_loss +
+            self.obj_weight * total_obj_loss +
+            self.cls_weight * total_cls_loss
+        )
+        
+        return total_loss, total_box_loss, total_obj_loss, total_cls_loss
 
 
 def compute_iou(box1: torch.Tensor, box2: torch.Tensor) -> torch.Tensor:

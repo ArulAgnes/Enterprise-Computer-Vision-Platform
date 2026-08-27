@@ -1,17 +1,90 @@
 "use client";
 
+import { useState } from "react";
 import { FileText, Download, BookOpen, Database, Brain, ShieldCheck, Archive, File } from "lucide-react";
+import { useApi, apiPost } from "@/lib/hooks";
 
-const reportTypes = [
-  { id: "model-card", title: "Model Card", desc: "Model documentation, metrics, limitations, and compliance", icon: Brain, generated: true },
-  { id: "dataset-card", title: "Dataset Card", desc: "Dataset provenance, methodology, statistics, and ethics", icon: Database, generated: true },
-  { id: "training-report", title: "Training Report", desc: "Full training log, hyperparameters, loss curves", icon: FileText, generated: true },
-  { id: "eval-report", title: "Evaluation Report", desc: "Metrics, confusion matrix, per-class results", icon: ShieldCheck, generated: true },
-  { id: "research-paper", title: "Research Report", desc: "Comprehensive research documentation for competition", icon: BookOpen, generated: true },
-  { id: "submission", title: "Competition Submission Package", desc: "Complete export for DataGenesis 2026", icon: Archive, generated: false },
+interface ReportType {
+  id: string;
+  title: string;
+  desc: string;
+  icon: typeof Brain;
+  apiType: string;
+}
+
+interface GeneratedReport {
+  type: string;
+  filename: string;
+  path: string;
+  content: string;
+}
+
+interface ExistingReport {
+  filename: string;
+  path: string;
+  size: number;
+  modified: string;
+}
+
+interface Model {
+  id: string;
+  modelId: string;
+  name: string;
+}
+
+interface Dataset {
+  id: string;
+  datasetId: string;
+  name: string;
+}
+
+const reportTypes: ReportType[] = [
+  { id: "model-card", title: "Model Card", desc: "Model documentation, metrics, limitations, and compliance", icon: Brain, apiType: "model_card" },
+  { id: "dataset-card", title: "Dataset Card", desc: "Dataset provenance, methodology, statistics, and ethics", icon: Database, apiType: "dataset_card" },
+  { id: "research-report", title: "Research Report", desc: "Comprehensive research documentation for competition", icon: BookOpen, apiType: "research_report" },
+  { id: "training-report", title: "Training Report", desc: "Full training log, hyperparameters, loss curves", icon: FileText, apiType: "training_report" },
+  { id: "eval-report", title: "Evaluation Report", desc: "Metrics, confusion matrix, per-class results", icon: ShieldCheck, apiType: "eval_report" },
+  { id: "submission", title: "Competition Submission Package", desc: "Complete export for DataGenesis 2026", icon: Archive, apiType: "submission" },
 ];
 
 export default function ReportsPage() {
+  const [generating, setGenerating] = useState<string | null>(null);
+  const [generatedReport, setGeneratedReport] = useState<GeneratedReport | null>(null);
+  const [reportMessage, setReportMessage] = useState<string | null>(null);
+
+  const { data: modelsData } = useApi<{ models: Model[]; total: number }>("/api/models");
+  const { data: datasetsData } = useApi<{ datasets: Dataset[]; total: number }>("/api/datasets");
+  const { data: reportsData, refetch: refetchReports } = useApi<{ reports: ExistingReport[]; total: number }>("/api/reports");
+
+  const models = modelsData?.models ?? [];
+  const datasets = datasetsData?.datasets ?? [];
+  const existingReports = reportsData?.reports ?? [];
+
+  const generateReport = async (rt: ReportType) => {
+    setGenerating(rt.id);
+    setReportMessage(null);
+    setGeneratedReport(null);
+
+    try {
+      const body: Record<string, unknown> = { type: rt.apiType };
+      if (rt.apiType === "model_card" && models.length > 0) {
+        body.modelId = models[0].id;
+      }
+      if (rt.apiType === "dataset_card" && datasets.length > 0) {
+        body.datasetId = datasets[0].id;
+      }
+
+      const result = await apiPost<{ report: GeneratedReport }>("/api/reports", body);
+      setGeneratedReport(result.report);
+      setReportMessage(`Report generated: ${result.report.filename}`);
+      refetchReports();
+    } catch (err) {
+      setReportMessage(err instanceof Error ? err.message : "Report generation failed");
+    } finally {
+      setGenerating(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -19,9 +92,12 @@ export default function ReportsPage() {
         <p className="text-sm text-[#94a3b8]">Generate model cards, dataset cards, research reports, and competition submission</p>
       </div>
 
-      {/* Report Cards */}
+      {reportMessage && (
+        <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg text-xs text-blue-300">{reportMessage}</div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {reportTypes.map(rt => (
+        {reportTypes.map((rt) => (
           <div key={rt.id} className="glass-card-solid p-5 space-y-3">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
@@ -33,10 +109,14 @@ export default function ReportsPage() {
               </div>
             </div>
             <div className="flex gap-2">
-              <button className="btn-primary text-[10px] px-3 py-1.5 flex items-center gap-1 flex-1">
-                <FileText className="w-3 h-3" /> Generate
+              <button
+                onClick={() => generateReport(rt)}
+                disabled={generating === rt.id}
+                className="btn-primary text-[10px] px-3 py-1.5 flex items-center gap-1 flex-1 disabled:opacity-50"
+              >
+                <FileText className="w-3 h-3" /> {generating === rt.id ? "Generating..." : "Generate"}
               </button>
-              {rt.generated && (
+              {existingReports.some((r) => r.filename.includes(rt.apiType)) && (
                 <button className="btn-secondary text-[10px] px-3 py-1.5 flex items-center gap-1">
                   <Download className="w-3 h-3" /> Export
                 </button>
@@ -46,37 +126,56 @@ export default function ReportsPage() {
         ))}
       </div>
 
-      {/* Dataset Card Preview */}
+      {generatedReport && (
+        <div className="glass-card-solid p-5">
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+            <FileText className="w-4 h-4 text-blue-400" /> Generated Report — {generatedReport.filename}
+          </h3>
+          <pre className="text-[10px] font-mono text-[#94a3b8] bg-[#111827] p-4 rounded-lg overflow-auto max-h-96">
+            {generatedReport.content}
+          </pre>
+        </div>
+      )}
+
+      {existingReports.length > 0 && (
+        <div className="glass-card-solid p-5">
+          <h3 className="text-sm font-semibold mb-3">Existing Reports</h3>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Filename</th>
+                <th>Size</th>
+                <th>Modified</th>
+              </tr>
+            </thead>
+            <tbody>
+              {existingReports.map((r) => (
+                <tr key={r.filename}>
+                  <td className="text-xs font-mono">{r.filename}</td>
+                  <td className="text-xs font-mono">{(r.size / 1024).toFixed(1)}KB</td>
+                  <td className="text-xs font-mono">{new Date(r.modified).toLocaleDateString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       <div className="glass-card-solid p-5">
         <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><Database className="w-4 h-4 text-blue-400" /> Dataset Card Preview</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-          <div className="space-y-1.5">
-            <p className="text-sm font-semibold text-blue-400 mb-2">Dataset Information</p>
-            <p><span className="text-[#64748b]">Name:</span> Traditional Indian Lamps & Ritual Objects</p>
-            <p><span className="text-[#64748b]">ID:</span> DIYA-2026</p>
-            <p><span className="text-[#64748b]">Version:</span> 0.3</p>
-            <p><span className="text-[#64748b]">Theme:</span> India-Centric Cultural Heritage</p>
-            <p><span className="text-[#64748b]">Images:</span> 763 (643 acceptable)</p>
-            <p><span className="text-[#64748b]">Annotations:</span> 4,218</p>
-            <p><span className="text-[#64748b]">Classes:</span> 8</p>
-            <p><span className="text-[#64748b]">Split:</span> 539 / 116 / 108 (Train/Val/Test)</p>
-            <p><span className="text-[#64748b]">Format:</span> YOLO (normalized)</p>
+        {datasets.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+            <div className="space-y-1.5">
+              <p className="text-sm font-semibold text-blue-400 mb-2">Dataset Information</p>
+              <p><span className="text-[#64748b]">Name:</span> {datasets[0].name}</p>
+              <p><span className="text-[#64748b]">ID:</span> {datasets[0].datasetId}</p>
+            </div>
           </div>
-          <div className="space-y-1.5">
-            <p className="text-sm font-semibold text-emerald-400 mb-2">Provenance & Ethics</p>
-            <p><span className="text-[#64748b]">Collection:</span> Original team-captured images</p>
-            <p><span className="text-[#64748b]">Location:</span> Rajapalayam, Tamil Nadu, India</p>
-            <p><span className="text-[#64748b]">Methodology:</span> Systematic multi-angle capture</p>
-            <p><span className="text-[#64748b]">External Data:</span> <span className="text-rose-400 font-semibold">NONE</span></p>
-            <p><span className="text-[#64748b]">Scraped Data:</span> <span className="text-rose-400 font-semibold">NONE</span></p>
-            <p><span className="text-[#64748b]">Privacy:</span> EXIF stripped, no faces captured</p>
-            <p><span className="text-[#64748b]">License:</span> Team-controlled</p>
-            <p><span className="text-[#64748b]">Contributors:</span> Arul Maria Agnes et al.</p>
-          </div>
-        </div>
+        ) : (
+          <p className="text-xs text-[#64748b]">NO DATASET REGISTERED</p>
+        )}
       </div>
 
-      {/* Research Report Structure */}
       <div className="glass-card-solid p-5">
         <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><BookOpen className="w-4 h-4 text-violet-400" /> Research Report Structure</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
@@ -89,7 +188,7 @@ export default function ReportsPage() {
             "12. Evaluation & Metrics", "13. Error Analysis", "14. Ablation Studies",
             "15. Limitations", "16. Ethical Considerations",
             "17. Future Work", "18. Conclusion", "19. Competition Compliance",
-          ].map(section => (
+          ].map((section) => (
             <div key={section} className="p-2 bg-[#111827] rounded flex items-center gap-2">
               <File className="w-3 h-3 text-[#64748b]" />
               <span className="text-[#94a3b8]">{section}</span>
@@ -98,7 +197,6 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      {/* Export Structure */}
       <div className="glass-card-solid p-5">
         <h3 className="text-sm font-semibold mb-3">Competition Submission Structure</h3>
         <pre className="text-[10px] font-mono text-[#94a3b8] bg-[#111827] p-4 rounded-lg overflow-auto">

@@ -17,8 +17,6 @@ VisionBharat is a complete end-to-end computer vision platform that demonstrates
 
 We did NOT start with an AI model. **We started with the data.**
 
-We captured India-centric visual data, engineered its quality, annotated it, validated it, prevented leakage, built our own detector, initialized it from scratch, trained it using only our data, evaluated it honestly, analyzed its failures, and built a complete reproducible system around the entire AI lifecycle.
-
 ---
 
 ## Competition Compliance
@@ -39,33 +37,41 @@ We captured India-centric visual data, engineered its quality, annotated it, val
 ## Dataset: Traditional Indian Lamps & Ritual Objects
 
 ### Classes (Configurable)
-- Clay Diya
-- Brass Diya
-- Hanging Diya
-- Multi-wick Diya
-- Kuthu Vilakku (Traditional Brass Lamp)
-- Temple Bell
-- Incense Holder
-- Ritual Plate
+1. Clay Diya
+2. Brass Diya
+3. Hanging Diya
+4. Multi-wick Diya
+5. Kuthu Vilakku (Traditional Brass Lamp)
+6. Temple Bell
+7. Incense Holder
+8. Ritual Plate
 
-### Why This Dataset
-- **Cultural relevance:** Deeply embedded in Indian religious practices
-- **Visual diversity:** Varies across materials, shapes, sizes, wick configurations
-- **Recognition challenge:** Fine-grained classification between similar objects
-- **Lighting variation:** From bright daylight to dim oil-lit environments
-- **Material differences:** Clay, brass, copper with distinct textures
-- **Practical applications:** Heritage preservation, museum digitization, e-commerce, tourism
+### Expected Directory Structure
+```
+datasets/
+├── raw/                    # Original collected images
+├── processed/              # Processed images
+├── images/
+│   ├── train/              # Training images
+│   ├── val/                # Validation images
+│   └── test/               # Test images
+├── labels/
+│   ├── train/              # YOLO-format labels
+│   ├── val/
+│   └── test/
+├── metadata/               # Image metadata
+└── versions/               # Dataset version snapshots
+```
 
-### Collection Methodology
-- Original photographs captured by the team
-- Multi-angle capture: front, back, left, right, top, close-up
-- Indoor and outdoor environments
-- Various lighting conditions
-- No web scraping, no Google Images, no external datasets
+### Annotation Format (YOLO)
+```
+class_id center_x center_y width height
+```
+All coordinates normalized to [0, 1].
 
 ---
 
-## Architecture: Custom CNN Detector
+## Architecture: Custom CNN Detector (2.67M Parameters)
 
 ### From Scratch — NO Pretrained Components
 
@@ -80,19 +86,18 @@ Stage 2: Downsample (64→128) + Res  → 80×80×128
 ↓
 Stage 3: Downsample (128→256) + Res → 40×40×256
 ↓
-Feature Pyramid Network              → Multi-scale features
+Feature Pyramid Network              → Multi-scale features (3 levels)
 ↓
-Detection Heads (3 levels)           → Objectness + BBox + Class
+Detection Heads (3 levels)           → Objectness + BBox + Class logits
 ```
 
 ### Loss Function (From First Principles)
-
 ```
 L_total = λ_box · L_box + λ_obj · L_obj + λ_cls · L_cls
 
-L_box = 1 - GIoU (Generalized Intersection over Union)
-L_obj = BCE(p_obj, t_obj) (Binary Cross-Entropy)
-L_cls = CE(p_cls, t_cls) (Cross-Entropy)
+L_box = 1 - CIoU (Complete IoU)
+L_obj = BCEWithLogitsLoss
+L_cls = BCEWithLogitsLoss
 ```
 
 ### Initialization
@@ -105,25 +110,13 @@ L_cls = CE(p_cls, t_cls) (Cross-Entropy)
 
 ## Technology Stack
 
-### Frontend
-- Next.js 16 (App Router)
-- React 19
-- TypeScript (strict)
-- Tailwind CSS 4
-- Recharts (data visualization)
-- Lucide React (icons)
-
-### Backend
-- Next.js API Routes
-- PostgreSQL (via Drizzle ORM)
-- REST API endpoints
-
-### AI / Computer Vision
-- Python 3.10+
-- PyTorch (model definition + training)
-- NumPy (numerical computation)
-- OpenCV (image processing)
-- Pillow (image I/O)
+| Layer | Technology |
+|---|---|
+| Frontend | Next.js 16, React 19, TypeScript 5.9, Tailwind CSS 4 |
+| UI Components | Lucide React, Recharts |
+| Backend | Next.js API Routes (17 endpoints) |
+| Database | PostgreSQL + Drizzle ORM (16 tables) |
+| AI/ML | Python 3.11, PyTorch 2.13, NumPy, OpenCV, Pillow |
 
 ---
 
@@ -131,168 +124,194 @@ L_cls = CE(p_cls, t_cls) (Cross-Entropy)
 
 ```
 VisionBharat/
-├── src/                          # Next.js application
-│   ├── app/                      # App Router pages
-│   │   ├── (platform)/           # Platform layout + pages
-│   │   │   ├── page.tsx          # Dashboard (Command Center)
-│   │   │   ├── datasets/         # Dataset Studio
-│   │   │   ├── capture/          # Image Capture & Ingest
-│   │   │   ├── annotation/       # Annotation Studio
-│   │   │   ├── quality/          # Quality Control
-│   │   │   ├── analytics/        # Dataset Analytics
-│   │   │   ├── training/         # Training Lab
-│   │   │   ├── experiments/      # Experiment Tracking
-│   │   │   ├── evaluation/       # Evaluation Engine
-│   │   │   ├── inference/        # Inference Studio
-│   │   │   ├── errors/           # Error Analysis
-│   │   │   ├── models/           # Model Registry
-│   │   │   ├── reports/          # Reports & Export
-│   │   │   ├── docs/             # Documentation
-│   │   │   ├── system/           # System Status
-│   │   │   └── competition/      # Competition Mode
-│   │   └── api/                  # API Routes
-│   │       ├── datasets/         # Dataset CRUD
-│   │       ├── images/           # Image management
-│   │       └── experiments/      # Experiment tracking
-│   └── db/                       # Database (Drizzle ORM)
-│       ├── schema.ts             # Complete database schema
-│       └── index.ts              # Database connection
-├── ai/                           # Python AI source code
-│   ├── model.py                  # Custom CNN architecture
-│   ├── train.py                  # Training pipeline
-│   └── evaluate.py               # Evaluation engine
-├── docs/                         # Documentation
-└── README.md                     # This file
+├── src/
+│   ├── app/
+│   │   ├── (platform)/          # 17 pages (dashboard, capture, annotation, etc.)
+│   │   └── api/                 # 17 API endpoints
+│   │       ├── upload/          # Image upload with SHA-256 + metadata
+│   │       ├── quality/         # Quality analysis engine
+│   │       ├── duplicates/      # Duplicate detection
+│   │       ├── annotations/     # Annotation CRUD
+│   │       ├── split/           # Dataset splitting
+│   │       ├── versions/        # Dataset versioning
+│   │       ├── analytics/       # Dataset analytics
+│   │       ├── training/        # Training experiments
+│   │       ├── inference/       # Inference recording
+│   │       ├── evaluation/      # Evaluation metrics
+│   │       ├── models/          # Model registry
+│   │       ├── reports/         # Report generation
+│   │       ├── classes/         # Class management
+│   │       ├── datasets/        # Dataset CRUD
+│   │       ├── images/          # Image listing
+│   │       ├── experiments/     # Experiment CRUD
+│   │       └── health/          # Health check
+│   ├── components/              # Shared components
+│   ├── lib/                     # Utilities (hooks, API, hash, paths)
+│   └── db/                      # Drizzle ORM schema + connection
+├── ai/
+│   ├── model.py                 # Custom CNN (2.67M params, from scratch)
+│   ├── train.py                 # Training pipeline with real loss
+│   ├── evaluate.py              # Evaluation engine
+│   ├── test_model.py            # Model smoke tests
+│   └── requirements.txt
+├── datasets/                    # Dataset storage
+├── uploads/                     # Uploaded images
+├── checkpoints/                 # Model checkpoints
+├── reports/                     # Generated reports
+├── logs/                        # Training logs
+└── docs/                        # Documentation
 ```
 
 ---
 
 ## Getting Started
 
-### Frontend (Next.js)
-```bash
+### 1. Install Dependencies
+```powershell
+cd VisionBharat
 npm install
-npm run dev
 ```
 
-### AI Training (Python — separate environment)
-```bash
-pip install torch numpy opencv-python pillow
-cd ai/
-python train.py
-```
-
-### Database
-```bash
+### 2. Setup Database
+```powershell
+# Ensure PostgreSQL is running
+# Copy .env.example to .env and configure DATABASE_URL
 npx drizzle-kit push
 ```
+
+### 3. Start Frontend
+```powershell
+npm run dev
+```
+Frontend runs at http://localhost:3000
+
+### 4. Python Environment
+```powershell
+cd ai
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+### 5. Run Model Tests
+```powershell
+cd ai
+python test_model.py
+```
+
+### 6. Training
+```powershell
+cd ai
+python train.py --dataset_root ../datasets --epochs 100 --batch_size 16
+```
+
+### 7. Evaluation
+```powershell
+cd ai
+python evaluate.py
+```
+
+---
+
+## API Endpoints
+
+| Endpoint | Methods | Description |
+|---|---|---|
+| `/api/health` | GET | Database health check |
+| `/api/datasets` | GET, POST | List/create datasets |
+| `/api/datasets/[id]` | GET, DELETE | Get/delete dataset |
+| `/api/upload` | POST | Upload images (multipart) |
+| `/api/images` | GET, POST | List/create image records |
+| `/api/quality` | GET, POST | Quality analysis |
+| `/api/duplicates` | GET, POST | Duplicate detection |
+| `/api/annotations` | GET, POST, PUT, DELETE | Annotation CRUD |
+| `/api/classes` | GET, POST | Class management |
+| `/api/split` | GET, POST | Dataset splitting |
+| `/api/versions` | GET, POST | Dataset versioning |
+| `/api/analytics` | GET | Dataset analytics |
+| `/api/training` | GET, POST, PUT | Training experiments |
+| `/api/models` | GET, POST, PUT | Model registry |
+| `/api/evaluation` | GET, POST | Evaluation metrics |
+| `/api/inference` | GET, POST | Inference runs |
+| `/api/reports` | GET, POST | Report generation |
+| `/api/experiments` | GET, POST | Experiment tracking |
 
 ---
 
 ## Key Features
 
 ### Dataset Engineering
-- ✅ Project creation with metadata
-- ✅ Image upload (drag & drop, batch)
-- ✅ Image quality analysis (brightness, blur, entropy, noise)
-- ✅ Duplicate detection (SHA-256 + perceptual hashing)
-- ✅ Annotation interface with bounding boxes
-- ✅ Annotation validation (health score)
-- ✅ Dataset splitting (deterministic, leakage-aware)
-- ✅ Dataset versioning
-- ✅ Class management (dynamic)
-- ✅ Dataset advisor (rule-based balancing recommendations)
-- ✅ Leakage detection (exact + near-duplicate across splits)
+- Image upload with drag-and-drop, batch upload
+- SHA-256 hash + perceptual hash computation
+- Real quality analysis (brightness, contrast, blur, entropy, noise)
+- Duplicate detection (exact + near-duplicate)
+- Interactive annotation editor with bounding boxes
+- Annotation validation with health scoring
+- Deterministic dataset splitting (train/val/test) with leakage detection
+- Dataset versioning with reproducible snapshots
+- Dynamic class management
 
 ### AI & Training
-- ✅ Custom CNN architecture from scratch
-- ✅ Random weight initialization (no pretrained)
-- ✅ Detection loss from first principles (GIoU + BCE + CE)
-- ✅ Training pipeline with CPU/CUDA support
-- ✅ Experiment tracking
-- ✅ Ablation study support
-- ✅ Checkpoint management (best + latest)
+- Custom CNN architecture (2.67M parameters, from scratch)
+- Real CIoU + BCE loss with target assignment
+- Training pipeline with CPU/CUDA support
+- Checkpoint management (best + latest)
+- Experiment tracking with metrics history
 
-### Evaluation
-- ✅ IoU computation (explicit)
-- ✅ Precision, Recall, F1
-- ✅ Per-class metrics
-- ✅ Confusion matrix
-- ✅ Confidence calibration
-- ✅ Error categorization (FP, FN, localization, classification)
-- ✅ Robustness testing
-- ✅ Test set protection (evaluation lock)
-
-### Inference
-- ✅ Image upload inference
-- ✅ Confidence threshold adjustment
-- ✅ Bounding box visualization
-- ✅ Detection overlay
-- ✅ Explainability visualization
+### Evaluation & Analysis
+- IoU, Precision, Recall, F1 metrics
+- Per-class metrics and confusion matrix
+- Error categorization (TP, FP, FN, localization, classification)
+- Confidence threshold analysis
 
 ### Reports & Export
-- ✅ Model Card (auto-generated)
-- ✅ Dataset Card (auto-generated)
-- ✅ Research report structure
-- ✅ Competition submission package structure
-- ✅ Kaggle-compatible dataset export
-
----
-
-## Competition Readiness
-
-- **Dataset Completeness:** 91%
-- **Annotation Quality:** 95%
-- **Class Balance:** 72%
-- **Validation Performance:** 67%
-- **Documentation:** 100%
-- **No Pretrained Weights:** 100%
-- **Overall:** 87.5%
-
-> This is an internal project readiness metric. NOT the official competition score.
+- Auto-generated Dataset Card (Markdown)
+- Auto-generated Model Card (Markdown)
+- Research report generation
+- YOLO-compatible export format
 
 ---
 
 ## Implementation Status
 
-### Fully Implemented
-- Frontend dashboard and all platform pages
-- Database schema (PostgreSQL + Drizzle ORM)
-- API routes for datasets, images, experiments
-- Custom CNN architecture (Python/PyTorch)
-- Training pipeline (Python/PyTorch)
-- Evaluation engine (Python/PyTorch)
-- Professional dark-theme UI with charts
-- Competition mode with demo flow
-- Documentation and compliance reporting
-
-### Partially Implemented (UI Complete, Backend Logic Mocked)
-- Image quality analysis computation
-- Duplicate detection algorithm
-- Annotation canvas drawing
-- Live training progress (WebSocket)
-- Real-time inference
+### Fully Implemented (Real Backend)
+- ✅ All 17 frontend pages with real API integration
+- ✅ All 17 API endpoints with real database operations
+- ✅ Image upload with physical file storage + SHA-256 + metadata
+- ✅ Quality analysis engine (brightness, contrast, blur, entropy, noise)
+- ✅ Duplicate detection (SHA-256 exact + perceptual hash near-duplicate)
+- ✅ Annotation editor with drawing, saving, loading
+- ✅ Dataset splitting with deterministic seed + leakage detection
+- ✅ Dataset versioning
+- ✅ Dataset analytics from real database records
+- ✅ Training experiment management
+- ✅ Model registry with from-scratch verification
+- ✅ Evaluation metrics storage
+- ✅ Report generation (Dataset Card, Model Card, Research Report)
+- ✅ Custom CNN architecture (from scratch, 2.67M params)
+- ✅ Real detection loss (CIoU + BCE with target assignment)
+- ✅ Training pipeline with checkpoint management
+- ✅ Python model smoke tests (all passing)
 
 ### Environment Dependent
-- CUDA GPU training (requires GPU)
+- CUDA GPU training (CPU mode available)
 - Webcam capture (requires browser permissions)
-- PyTorch model execution (requires Python runtime)
+- PostgreSQL database (required for all features)
 
 ### Not Implemented
 - Kaggle authenticated upload (export package available)
 - Docker deployment configuration
-- Full CI/CD pipeline
 
 ---
 
 ## Why We Are Different
 
 1. **We created the data.** Not merely downloaded a dataset.
-2. **We engineered data quality.** Duplicate detection, quality scoring, annotation validation, and leakage detection.
+2. **We engineered data quality.** Real duplicate detection, quality scoring, annotation validation.
 3. **We built the model.** Random initialization and training from scratch.
 4. **We measured failures.** Error analysis instead of showing only successful predictions.
-5. **We made the experiment reproducible.** Dataset versions, seeds, configurations, and experiment tracking.
-6. **We designed for India.** The dataset represents real Indian objects and environments.
+5. **We made it reproducible.** Dataset versions, seeds, configurations, experiment tracking.
+6. **We designed for India.** Traditional Indian Lamps & Ritual Objects dataset.
 
 ---
 
@@ -301,12 +320,6 @@ npx drizzle-kit push
 **Project Lead / Developer:** Arul Maria Agnes  
 **Institution:** Ramco Institute of Technology, Rajapalayam  
 **Competition:** DataGenesis 2026 National AI & Computer Vision Hackathon
-
----
-
-## License
-
-Team-controlled. Competition submission package.
 
 ---
 
