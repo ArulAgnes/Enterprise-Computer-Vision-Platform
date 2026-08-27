@@ -1,0 +1,284 @@
+# ============================================================
+# VisionBharat — DataGenesis 2026
+# Next.js + Python/PyTorch + PostgreSQL/Drizzle
+# ============================================================
+
+# ------------------------------------------------------------
+# Node.js / Next.js
+# ------------------------------------------------------------
+node_modules/
+.next/
+out/
+dist/
+build/
+.turbo/
+.vercel/
+
+# Next.js cache
+.next/cache/
+
+# npm
+.npm/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ------------------------------------------------------------
+# Environment / Secrets
+# ------------------------------------------------------------
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Keep example environment configuration
+!.env.example
+
+# ------------------------------------------------------------
+# Python
+# ------------------------------------------------------------
+.venv/
+venv/
+env/
+ENV/
+.conda/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Python packaging
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.mypy_cache/
+.pyre/
+.ruff_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# ------------------------------------------------------------
+# PyTorch / AI Model Artifacts
+# ------------------------------------------------------------
+
+# Model checkpoints
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.onnx
+
+# Training outputs
+checkpoints/
+runs/
+wandb/
+tensorboard/
+logs/
+ai/logs/
+ai/checkpoints/
+ai/runs/
+
+# TensorBoard event files
+events.out.tfevents.*
+
+# ------------------------------------------------------------
+# Dataset Files
+# ------------------------------------------------------------
+
+# IMPORTANT:
+# Do not accidentally commit the team-collected dataset.
+# Competition submission should separately contain approved
+# dataset/export artifacts as required.
+
+datasets/
+dataset/
+data/
+uploads/
+storage/
+media/
+
+# Images
+*.jpg
+*.jpeg
+*.png
+*.bmp
+*.tif
+*.tiff
+*.webp
+
+# Annotation files
+*.txt
+*.xml
+*.jsonl
+
+# If you have intentionally committed configuration JSON,
+# explicitly force-add it with git add -f when appropriate.
+
+# ------------------------------------------------------------
+# Generated Reports / Exports
+# ------------------------------------------------------------
+reports/generated/
+exports/
+submission/
+artifacts/
+tmp/
+temp/
+
+# Generated PDFs
+*.pdf
+
+# Generated archives
+*.zip
+*.tar
+*.tar.gz
+*.7z
+
+# ------------------------------------------------------------
+# Database
+# ------------------------------------------------------------
+
+# Local database files
+*.db
+*.sqlite
+*.sqlite3
+
+# PostgreSQL local dumps / backups
+*.dump
+*.sql.gz
+
+# Drizzle generated migration artifacts:
+# Uncomment if your project generates temporary migrations
+# that should not be committed.
+#
+# drizzle/
+
+# ------------------------------------------------------------
+# OS Files
+# ------------------------------------------------------------
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+Desktop.ini
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Linux
+*~
+
+# ------------------------------------------------------------
+# IDE / Editors
+# ------------------------------------------------------------
+
+# VS Code
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.example.json
+
+# JetBrains
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Visual Studio
+.vs/
+
+# Vim
+*.swp
+*.swo
+
+# Emacs
+*~
+\#*\#
+
+# ------------------------------------------------------------
+# TypeScript
+# ------------------------------------------------------------
+*.tsbuildinfo
+
+# ------------------------------------------------------------
+# ESLint / tooling caches
+# ------------------------------------------------------------
+.eslintcache
+.stylelintcache
+
+# ------------------------------------------------------------
+# Coverage / test artifacts
+# ------------------------------------------------------------
+coverage/
+test-results/
+playwright-report/
+blob-report/
+
+# ------------------------------------------------------------
+# Docker
+# ------------------------------------------------------------
+.docker/
+docker-data/
+docker-volumes/
+
+# ------------------------------------------------------------
+# Local runtime files
+# ------------------------------------------------------------
+*.pid
+*.seed
+*.pid.lock
+
+# ------------------------------------------------------------
+# Secrets / credentials
+# ------------------------------------------------------------
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# Cloud credentials
+credentials.json
+service-account.json
+*-credentials.json
+
+# ------------------------------------------------------------
+# OS / temporary files
+# ------------------------------------------------------------
+*.tmp
+*.temp
+*.bak
+*.backup
+*.orig
+
+# ------------------------------------------------------------
+# Local development metadata
+# ------------------------------------------------------------
+.local/
+.cache/
+.cache-loader/
+
+# ------------------------------------------------------------
+# Keep important project documentation
+# ------------------------------------------------------------
+
+# README files should remain tracked
+!README.md
+!**/README.md
+
+# Documentation should remain tracked
+!docs/
+!docs/**
