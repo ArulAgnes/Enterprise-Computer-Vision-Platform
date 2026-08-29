@@ -5,6 +5,7 @@ import { eq, sql } from "drizzle-orm";
 import { writeFile, mkdir } from "fs/promises";
 import { existsSync } from "fs";
 import path from "path";
+import { resolveDatasetIdentifier } from "@/lib/dataset";
 
 const REPORTS_DIR = path.join(process.cwd(), "reports");
 
@@ -25,15 +26,20 @@ export async function POST(request: NextRequest) {
         return Response.json({ error: "datasetId required for dataset card" }, { status: 400 });
       }
 
-      const dataset = await db.select().from(datasets).where(eq(datasets.id, datasetId)).limit(1);
+      const dsRecord = await resolveDatasetIdentifier(datasetId);
+      if (!dsRecord) {
+        return Response.json({ error: "Dataset not found" }, { status: 404 });
+      }
+
+      const dataset = await db.select().from(datasets).where(eq(datasets.id, dsRecord.id)).limit(1);
       if (dataset.length === 0) {
         return Response.json({ error: "Dataset not found" }, { status: 404 });
       }
 
       const ds = dataset[0];
-      const totalImages = await db.select({ count: sql<number>`count(*)::int` }).from(images).where(eq(images.datasetId, datasetId));
-      const totalAnnotations = await db.select({ count: sql<number>`count(*)::int` }).from(annotations).where(eq(annotations.datasetId, datasetId));
-      const classList = await db.select().from(classes).where(eq(classes.datasetId, datasetId));
+      const totalImages = await db.select({ count: sql<number>`count(*)::int` }).from(images).where(eq(images.datasetId, dsRecord.id));
+      const totalAnnotations = await db.select({ count: sql<number>`count(*)::int` }).from(annotations).where(eq(annotations.datasetId, dsRecord.id));
+      const classList = await db.select().from(classes).where(eq(classes.datasetId, dsRecord.id));
 
       reportContent = `# Dataset Card: ${ds.name}\n\n`;
       reportContent += `**Dataset ID:** ${ds.datasetId}\n`;

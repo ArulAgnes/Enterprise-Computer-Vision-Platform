@@ -2,13 +2,14 @@ import { NextRequest } from "next/server";
 import { db } from "@/db";
 import { images, annotations, classes, datasetSplits, datasets } from "@/db/schema";
 import { eq, sql } from "drizzle-orm";
+import { resolveDatasetIdentifier } from "@/lib/dataset";
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { datasetId, trainRatio = 0.7, valRatio = 0.15, testRatio = 0.15, seed = 42 } = body;
+    const { datasetId: datasetIdRaw, trainRatio = 0.7, valRatio = 0.15, testRatio = 0.15, seed = 42 } = body;
 
-    if (!datasetId) {
+    if (!datasetIdRaw) {
       return Response.json({ error: "datasetId required" }, { status: 400 });
     }
 
@@ -16,10 +17,15 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: "Ratios must sum to 1.0" }, { status: 400 });
     }
 
+    const ds = await resolveDatasetIdentifier(datasetIdRaw);
+    if (!ds) {
+      return Response.json({ error: "Dataset not found" }, { status: 404 });
+    }
+
     const datasetImages = await db
       .select()
       .from(images)
-      .where(eq(images.datasetId, datasetId));
+      .where(eq(images.datasetId, ds.id));
 
     if (datasetImages.length === 0) {
       return Response.json({ error: "No images in dataset" }, { status: 400 });
@@ -64,7 +70,7 @@ export async function POST(request: NextRequest) {
 
     const version = `v${Date.now()}`;
     const inserted = await db.insert(datasetSplits).values({
-      datasetId,
+      datasetId: ds.id,
       version,
       trainRatio,
       valRatio,
@@ -95,16 +101,21 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   try {
     const url = new URL(request.url);
-    const datasetId = url.searchParams.get("datasetId");
+    const datasetIdParam = url.searchParams.get("datasetId");
 
-    if (!datasetId) {
+    if (!datasetIdParam) {
       return Response.json({ error: "datasetId required" }, { status: 400 });
+    }
+
+    const ds = await resolveDatasetIdentifier(datasetIdParam);
+    if (!ds) {
+      return Response.json({ error: "Dataset not found" }, { status: 404 });
     }
 
     const splits = await db
       .select()
       .from(datasetSplits)
-      .where(eq(datasetSplits.datasetId, datasetId));
+      .where(eq(datasetSplits.datasetId, ds.id));
 
     return Response.json({ splits, total: splits.length });
   } catch (error) {

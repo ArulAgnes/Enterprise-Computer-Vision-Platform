@@ -2,22 +2,27 @@ import { NextRequest } from "next/server";
 import { db } from "@/db";
 import { annotations, images, classes } from "@/db/schema";
 import { eq, and, sql } from "drizzle-orm";
+import { resolveDatasetIdentifier } from "@/lib/dataset";
 
 export async function GET(request: NextRequest) {
   try {
     const url = new URL(request.url);
     const imageId = url.searchParams.get("imageId");
-    const datasetId = url.searchParams.get("datasetId");
+    const datasetIdParam = url.searchParams.get("datasetId");
 
-    if (!imageId && !datasetId) {
+    if (!imageId && !datasetIdParam) {
       return Response.json({ error: "imageId or datasetId required" }, { status: 400 });
     }
 
     let query = db.select().from(annotations);
     if (imageId) {
       query = query.where(eq(annotations.imageId, imageId)) as typeof query;
-    } else if (datasetId) {
-      query = query.where(eq(annotations.datasetId, datasetId)) as typeof query;
+    } else if (datasetIdParam) {
+      const ds = await resolveDatasetIdentifier(datasetIdParam);
+      if (!ds) {
+        return Response.json({ error: "Dataset not found" }, { status: 404 });
+      }
+      query = query.where(eq(annotations.datasetId, ds.id)) as typeof query;
     }
 
     const result = await query.limit(5000);
@@ -31,9 +36,9 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { imageId, datasetId, classId, className, x, y, width, height, imageWidth, imageHeight } = body;
+    const { imageId, datasetId: datasetIdRaw, classId, className, x, y, width, height, imageWidth, imageHeight } = body;
 
-    if (!imageId || !datasetId || !className || x === undefined || y === undefined || width === undefined || height === undefined) {
+    if (!imageId || !datasetIdRaw || !className || x === undefined || y === undefined || width === undefined || height === undefined) {
       return Response.json({ error: "Missing required fields" }, { status: 400 });
     }
 
@@ -55,9 +60,14 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: "Normalized coordinates out of range [0,1]" }, { status: 400 });
     }
 
+    const ds = await resolveDatasetIdentifier(datasetIdRaw);
+    if (!ds) {
+      return Response.json({ error: "Dataset not found" }, { status: 404 });
+    }
+
     const inserted = await db.insert(annotations).values({
       imageId,
-      datasetId,
+      datasetId: ds.id,
       classId: classId || null,
       className,
       x,
@@ -74,6 +84,15 @@ export async function POST(request: NextRequest) {
     await db.update(images)
       .set({ annotationStatus: "annotated" })
       .where(eq(images.id, imageId));
+
+    // Update class annotation count
+    if (classId) {
+      await db.execute(sql`
+        UPDATE classes SET annotation_count = (
+          SELECT count(*)::int FROM annotations WHERE class_id = ${classId}
+        ) WHERE id = ${classId}
+      `);
+    }
 
     return Response.json({ annotation: inserted[0] }, { status: 201 });
   } catch (error) {
@@ -141,6 +160,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     const deletedImageId = existing[0].imageId;
+    const deletedClassId = existing[0].classId;
     await db.delete(annotations).where(eq(annotations.id, id));
 
     if (deletedImageId) {
@@ -154,6 +174,14 @@ export async function DELETE(request: NextRequest) {
           .set({ annotationStatus: "unannotated" })
           .where(eq(images.id, deletedImageId));
       }
+    }
+
+    if (deletedClassId) {
+      await db.execute(sql`
+        UPDATE classes SET annotation_count = (
+          SELECT count(*)::int FROM annotations WHERE class_id = ${deletedClassId}
+        ) WHERE id = ${deletedClassId}
+      `);
     }
 
     return Response.json({ success: true });

@@ -2,25 +2,26 @@ import { NextRequest } from "next/server";
 import { db } from "@/db";
 import { datasetVersions, datasets, images, annotations, classes, qualityReports, duplicateGroups } from "@/db/schema";
 import { eq, sql, desc } from "drizzle-orm";
+import { resolveDatasetIdentifier } from "@/lib/dataset";
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { datasetId, changeDescription } = body;
+    const { datasetId: datasetIdRaw, changeDescription } = body;
 
-    if (!datasetId) {
+    if (!datasetIdRaw) {
       return Response.json({ error: "datasetId required" }, { status: 400 });
     }
 
-    const dataset = await db.select().from(datasets).where(eq(datasets.id, datasetId)).limit(1);
-    if (dataset.length === 0) {
+    const ds = await resolveDatasetIdentifier(datasetIdRaw);
+    if (!ds) {
       return Response.json({ error: "Dataset not found" }, { status: 404 });
     }
 
     const existingVersions = await db
       .select({ version: datasetVersions.version })
       .from(datasetVersions)
-      .where(eq(datasetVersions.datasetId, datasetId))
+      .where(eq(datasetVersions.datasetId, ds.id))
       .orderBy(desc(datasetVersions.createdAt));
 
     const currentVersionNum = existingVersions.length > 0
@@ -28,14 +29,14 @@ export async function POST(request: NextRequest) {
       : 0;
     const newVersion = `v${(currentVersionNum + 0.1).toFixed(1)}`;
 
-    const imageCount = await db.select({ count: sql<number>`count(*)::int` }).from(images).where(eq(images.datasetId, datasetId));
-    const annotationCount = await db.select({ count: sql<number>`count(*)::int` }).from(annotations).where(eq(annotations.datasetId, datasetId));
-    const classCount = await db.select({ count: sql<number>`count(*)::int` }).from(classes).where(eq(classes.datasetId, datasetId));
-    const qualityCount = await db.select({ count: sql<number>`count(*)::int` }).from(qualityReports).where(eq(qualityReports.datasetId, datasetId));
-    const duplicateCount = await db.select({ count: sql<number>`count(*)::int` }).from(duplicateGroups).where(eq(duplicateGroups.datasetId, datasetId));
+    const imageCount = await db.select({ count: sql<number>`count(*)::int` }).from(images).where(eq(images.datasetId, ds.id));
+    const annotationCount = await db.select({ count: sql<number>`count(*)::int` }).from(annotations).where(eq(annotations.datasetId, ds.id));
+    const classCount = await db.select({ count: sql<number>`count(*)::int` }).from(classes).where(eq(classes.datasetId, ds.id));
+    const qualityCount = await db.select({ count: sql<number>`count(*)::int` }).from(qualityReports).where(eq(qualityReports.datasetId, ds.id));
+    const duplicateCount = await db.select({ count: sql<number>`count(*)::int` }).from(duplicateGroups).where(eq(duplicateGroups.datasetId, ds.id));
 
     const inserted = await db.insert(datasetVersions).values({
-      datasetId,
+      datasetId: ds.id,
       version: newVersion,
       changeDescription: changeDescription || `Version ${newVersion} snapshot`,
       imagesAdded: imageCount[0].count,
@@ -43,7 +44,7 @@ export async function POST(request: NextRequest) {
       classesChanged: classCount[0].count,
     }).returning();
 
-    await db.update(datasets).set({ version: newVersion }).where(eq(datasets.id, datasetId));
+    await db.update(datasets).set({ version: newVersion }).where(eq(datasets.id, ds.id));
 
     return Response.json({
       version: inserted[0],
@@ -64,16 +65,21 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   try {
     const url = new URL(request.url);
-    const datasetId = url.searchParams.get("datasetId");
+    const datasetIdParam = url.searchParams.get("datasetId");
 
-    if (!datasetId) {
+    if (!datasetIdParam) {
       return Response.json({ error: "datasetId required" }, { status: 400 });
+    }
+
+    const ds = await resolveDatasetIdentifier(datasetIdParam);
+    if (!ds) {
+      return Response.json({ error: "Dataset not found" }, { status: 404 });
     }
 
     const versions = await db
       .select()
       .from(datasetVersions)
-      .where(eq(datasetVersions.datasetId, datasetId))
+      .where(eq(datasetVersions.datasetId, ds.id))
       .orderBy(desc(datasetVersions.createdAt));
 
     return Response.json({ versions, total: versions.length });

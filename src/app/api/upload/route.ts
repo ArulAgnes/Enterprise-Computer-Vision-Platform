@@ -6,6 +6,7 @@ import { writeFile, mkdir } from "fs/promises";
 import { existsSync } from "fs";
 import path from "path";
 import { createHash } from "crypto";
+import { resolveDatasetIdentifier } from "@/lib/dataset";
 
 const UPLOADS_DIR = path.join(process.cwd(), "uploads");
 const ALLOWED_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
@@ -26,14 +27,14 @@ export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
     const files = formData.getAll("files") as File[];
-    const datasetId = formData.get("datasetId") as string;
+    const datasetIdRaw = formData.get("datasetId") as string;
 
-    if (!datasetId) {
+    if (!datasetIdRaw) {
       return Response.json({ error: "datasetId is required" }, { status: 400 });
     }
 
-    const dataset = await db.select().from(datasets).where(eq(datasets.id, datasetId)).limit(1);
-    if (dataset.length === 0) {
+    const ds = await resolveDatasetIdentifier(datasetIdRaw);
+    if (!ds) {
       return Response.json({ error: "Dataset not found" }, { status: 404 });
     }
 
@@ -41,7 +42,7 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: "No files provided" }, { status: 400 });
     }
 
-    const uploadDir = path.join(UPLOADS_DIR, datasetId);
+    const uploadDir = path.join(UPLOADS_DIR, ds.id);
     if (!existsSync(uploadDir)) {
       await mkdir(uploadDir, { recursive: true });
     }
@@ -82,7 +83,7 @@ export async function POST(request: NextRequest) {
         const metadata = buffer.length > 0 ? await getImageDimensions(buffer, ext) : null;
 
         const inserted = await db.insert(images).values({
-          datasetId,
+          datasetId: ds.id,
           filename: uniqueName,
           originalFilename: file.name,
           filepath: filePath,

@@ -4,13 +4,16 @@ import { images, qualityReports, datasets } from "@/db/schema";
 import { eq, sql, and } from "drizzle-orm";
 import { readFile } from "fs/promises";
 import path from "path";
+import { resolveDatasetIdentifier } from "@/lib/dataset";
+
+const UPLOADS_DIR = path.join(process.cwd(), "uploads");
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { imageId, datasetId } = body;
+    const { imageId, datasetId: datasetIdRaw } = body;
 
-    if (!imageId && !datasetId) {
+    if (!imageId && !datasetIdRaw) {
       return Response.json({ error: "imageId or datasetId required" }, { status: 400 });
     }
 
@@ -18,7 +21,11 @@ export async function POST(request: NextRequest) {
     if (imageId) {
       targetImages = await db.select().from(images).where(eq(images.id, imageId)).limit(1);
     } else {
-      targetImages = await db.select().from(images).where(eq(images.datasetId, datasetId));
+      const ds = await resolveDatasetIdentifier(datasetIdRaw);
+      if (!ds) {
+        return Response.json({ error: "Dataset not found" }, { status: 404 });
+      }
+      targetImages = await db.select().from(images).where(eq(images.datasetId, ds.id));
     }
 
     if (!targetImages || targetImages.length === 0) {
@@ -29,12 +36,14 @@ export async function POST(request: NextRequest) {
 
     for (const img of targetImages) {
       try {
-        const filePath = img.filepath || path.join(process.cwd(), "uploads", img.datasetId || "", img.filename);
-        
+        // Resolve the actual file path - try multiple locations
+        const filePath = await resolveImagePath(img);
+
         let fileBuffer: Buffer;
         try {
           fileBuffer = await readFile(filePath);
         } catch {
+          // File not found at any resolved path
           await db.insert(qualityReports).values({
             imageId: img.id,
             datasetId: img.datasetId,
@@ -82,6 +91,9 @@ export async function POST(request: NextRequest) {
         let qualityFlag = "green";
         if (qualityScore < 50) qualityFlag = "red";
         else if (qualityScore < 75) qualityFlag = "yellow";
+
+        // Delete any existing quality report for this image to avoid duplicates
+        await db.delete(qualityReports).where(eq(qualityReports.imageId, img.id));
 
         await db.insert(qualityReports).values({
           imageId: img.id,
@@ -134,6 +146,38 @@ export async function POST(request: NextRequest) {
     console.error("[QUALITY] Error:", error);
     return Response.json({ error: "Quality analysis failed" }, { status: 500 });
   }
+}
+
+async function resolveImagePath(img: { filepath?: string | null; datasetId?: string | null; filename: string }): Promise<string> {
+  // Try stored filepath first
+  if (img.filepath) {
+    try {
+      const { accessSync } = await import("fs");
+      accessSync(img.filepath);
+      return img.filepath;
+    } catch {}
+  }
+
+  // Try uploads/{datasetId}/{filename}
+  if (img.datasetId) {
+    const p = path.join(UPLOADS_DIR, img.datasetId, img.filename);
+    try {
+      const { accessSync } = await import("fs");
+      accessSync(p);
+      return p;
+    } catch {}
+  }
+
+  // Try datasets/images/train/{filename}
+  const trainPath = path.join(process.cwd(), "datasets", "images", "train", img.filename);
+  try {
+    const { accessSync } = await import("fs");
+    accessSync(trainPath);
+    return trainPath;
+  } catch {}
+
+  // Return the stored path even if missing (will be caught later)
+  return img.filepath || path.join(UPLOADS_DIR, img.datasetId || "", img.filename);
 }
 
 function computeBrightness(buffer: Buffer): number {
@@ -210,14 +254,18 @@ function estimateNoise(buffer: Buffer): number {
 export async function GET(request: NextRequest) {
   try {
     const url = new URL(request.url);
-    const datasetId = url.searchParams.get("datasetId");
+    const datasetIdParam = url.searchParams.get("datasetId");
 
     let query = db.select().from(qualityReports);
-    if (datasetId) {
-      query = query.where(eq(qualityReports.datasetId, datasetId)) as typeof query;
+    if (datasetIdParam) {
+      const ds = await resolveDatasetIdentifier(datasetIdParam);
+      if (!ds) {
+        return Response.json({ error: "Dataset not found" }, { status: 404 });
+      }
+      query = query.where(eq(qualityReports.datasetId, ds.id)) as typeof query;
     }
 
-    const reports = await query.limit(1000);
+    const reports = await query.limit(10000);
     return Response.json({ reports, total: reports.length });
   } catch (error) {
     console.error("[QUALITY] GET Error:", error);

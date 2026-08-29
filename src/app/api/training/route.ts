@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { db } from "@/db";
 import { experiments, trainingMetrics, datasets } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
+import { resolveDatasetIdentifier } from "@/lib/dataset";
 
 export async function GET(request: NextRequest) {
   try {
@@ -54,8 +55,8 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: "datasetId required" }, { status: 400 });
     }
 
-    const dataset = await db.select().from(datasets).where(eq(datasets.id, datasetId)).limit(1);
-    if (dataset.length === 0) {
+    const ds = await resolveDatasetIdentifier(datasetId);
+    if (!ds) {
       return Response.json({ error: "Dataset not found" }, { status: 404 });
     }
 
@@ -65,7 +66,7 @@ export async function POST(request: NextRequest) {
       experimentId,
       name: name || `Training ${experimentId}`,
       description: description || "",
-      datasetId,
+      datasetId: ds.id,
       imageSize,
       batchSize,
       epochs,

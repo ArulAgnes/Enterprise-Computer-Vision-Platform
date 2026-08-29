@@ -2,20 +2,26 @@ import { NextRequest } from "next/server";
 import { db } from "@/db";
 import { images, duplicateGroups, datasets } from "@/db/schema";
 import { eq, sql } from "drizzle-orm";
+import { resolveDatasetIdentifier } from "@/lib/dataset";
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { datasetId, threshold = 5 } = body;
+    const { datasetId: datasetIdRaw, threshold = 5 } = body;
 
-    if (!datasetId) {
+    if (!datasetIdRaw) {
       return Response.json({ error: "datasetId required" }, { status: 400 });
+    }
+
+    const ds = await resolveDatasetIdentifier(datasetIdRaw);
+    if (!ds) {
+      return Response.json({ error: "Dataset not found" }, { status: 404 });
     }
 
     const datasetImages = await db
       .select()
       .from(images)
-      .where(eq(images.datasetId, datasetId));
+      .where(eq(images.datasetId, ds.id));
 
     if (datasetImages.length < 2) {
       return Response.json({
@@ -56,9 +62,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Clear existing groups for this dataset first
+    await db.delete(duplicateGroups).where(eq(duplicateGroups.datasetId, ds.id));
+
     for (const group of exactGroups) {
       await db.insert(duplicateGroups).values({
-        datasetId,
+        datasetId: ds.id,
         groupType: "exact",
         similarityScore: 100,
         imageIds: group.images,
@@ -67,7 +76,7 @@ export async function POST(request: NextRequest) {
 
     for (const group of nearGroups) {
       await db.insert(duplicateGroups).values({
-        datasetId,
+        datasetId: ds.id,
         groupType: "near",
         similarityScore: group.similarity,
         imageIds: group.images,
@@ -91,16 +100,21 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   try {
     const url = new URL(request.url);
-    const datasetId = url.searchParams.get("datasetId");
+    const datasetIdParam = url.searchParams.get("datasetId");
 
-    if (!datasetId) {
+    if (!datasetIdParam) {
       return Response.json({ error: "datasetId required" }, { status: 400 });
+    }
+
+    const ds = await resolveDatasetIdentifier(datasetIdParam);
+    if (!ds) {
+      return Response.json({ error: "Dataset not found" }, { status: 404 });
     }
 
     const groups = await db
       .select()
       .from(duplicateGroups)
-      .where(eq(duplicateGroups.datasetId, datasetId));
+      .where(eq(duplicateGroups.datasetId, ds.id));
 
     return Response.json({ groups, total: groups.length });
   } catch (error) {

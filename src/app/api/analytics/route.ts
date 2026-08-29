@@ -2,20 +2,23 @@ import { NextRequest } from "next/server";
 import { db } from "@/db";
 import { images, annotations, classes, qualityReports, duplicateGroups, datasetSplits, datasets } from "@/db/schema";
 import { eq, sql, count } from "drizzle-orm";
+import { resolveDatasetIdentifier } from "@/lib/dataset";
 
 export async function GET(request: NextRequest) {
   try {
     const url = new URL(request.url);
-    const datasetId = url.searchParams.get("datasetId");
+    const datasetIdParam = url.searchParams.get("datasetId");
 
-    if (!datasetId) {
+    if (!datasetIdParam) {
       return Response.json({ error: "datasetId required" }, { status: 400 });
     }
 
-    const dataset = await db.select().from(datasets).where(eq(datasets.id, datasetId)).limit(1);
-    if (dataset.length === 0) {
+    const ds = await resolveDatasetIdentifier(datasetIdParam);
+    if (!ds) {
       return Response.json({ error: "Dataset not found" }, { status: 404 });
     }
+
+    const datasetId = ds.id;
 
     const totalImagesResult = await db
       .select({ count: sql<number>`count(*)::int` })

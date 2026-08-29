@@ -5,7 +5,7 @@
 **Competition:** DataGenesis 2026 National AI & Computer Vision Hackathon  
 **Institution:** Ramco Institute of Technology, Rajapalayam  
 **Project Lead:** Arul Maria Agnes  
-**Email:** ages915033@gmail.com
+**Email:** agnes915033@gmail.com
 
 ---
 

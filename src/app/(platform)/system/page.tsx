@@ -4,63 +4,55 @@ import { useState, useEffect } from "react";
 import { Settings, Cpu, HardDrive, Monitor, Clock, ShieldCheck, Activity, Database, Info, RefreshCw, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { useApi } from "@/lib/hooks";
 
-interface HealthData { status: string; ok?: boolean; }
+interface HealthData {
+  status: string;
+  mode: string;
+  ok: boolean;
+  version: string;
+  services: {
+    database: { status: string; detail: string };
+    storage: { status: string; detail: string };
+    python: { status: string; detail: string };
+    gpu: { status: string; detail: string };
+    training: { status: string; detail: string };
+  };
+  counts: { datasets: number; images: number };
+}
 interface ModelsData { models: Array<{ id: string; name: string; status: string }>; total: number; }
 interface TrainingData { experiments: Array<{ id: string; status: string }>; total: number; }
 
-function useFeatureCheck(url: string | null) {
-  const { data, loading } = useApi<{ ok?: boolean; success?: boolean; error?: string }>(url);
-  return { available: !loading && (data?.ok === true || data?.success === true), loading };
-}
-
 export default function SystemPage() {
-  const [diskUsage, setDiskUsage] = useState<string | null>(null);
-  const [pythonExists, setPythonExists] = useState<boolean | null>(null);
-  const [pytorchExists, setPytorchExists] = useState<boolean | null>(null);
-
   const { data: healthData, loading: healthLoading, refetch: refetchHealth } = useApi<HealthData>("/api/health");
   const { data: datasetsRes, loading: datasetsLoading } = useApi<Array<{ id: string; name: string }>>("/api/datasets");
   const { data: modelsRes, loading: modelsLoading } = useApi<ModelsData>("/api/models");
   const { data: trainingRes, loading: trainingLoading } = useApi<TrainingData>("/api/training");
 
-  const dbOk = healthData?.status === "ok";
-  const datasetCount = datasetsRes?.length ?? null;
+  const dbOk = healthData?.services?.database?.status === "ok";
+  const storageOk = healthData?.services?.storage?.status === "ok";
+  const pythonOk = healthData?.services?.python?.status === "ok";
+  const gpuAvailable = healthData?.services?.gpu?.status === "available";
+  const trainingAvailable = healthData?.services?.training?.status === "available";
+  const datasetCount = healthData?.counts?.datasets ?? datasetsRes?.length ?? null;
   const modelCount = modelsRes?.total ?? null;
   const experimentCount = trainingRes?.total ?? null;
   const hasTrainingExperiments = (trainingRes?.experiments?.length ?? 0) > 0;
   const hasModels = (modelsRes?.total ?? 0) > 0;
 
-  const apiFeatures = useFeatureCheck("/api/datasets");
-  const annotationsApi = useFeatureCheck(null);
-  const inferenceApi = useFeatureCheck(null);
-  const evaluationApi = useFeatureCheck(null);
-  const qualityApi = useFeatureCheck(null);
-
-  useEffect(() => {
-    fetch("/api/health").then(r => r.json()).then(() => {
-      setDiskUsage("Available");
-    }).catch(() => setDiskUsage("Unknown"));
-
-    fetch("/api/datasets").then(() => {
-      setPythonExists(true);
-    }).catch(() => setPythonExists(false));
-  }, []);
-
   const loading = healthLoading || datasetsLoading || modelsLoading || trainingLoading;
 
   const features = [
-    { feature: "Database (PostgreSQL)", status: dbOk ? "Working" : "Error", notes: dbOk ? "Connection healthy" : "Connection failed", ok: dbOk },
-    { feature: "Dataset Management", status: apiFeatures.available ? "Working" : "Error", notes: `${datasetCount ?? 0} datasets`, ok: apiFeatures.available },
-    { feature: "Image Upload & Ingest", status: apiFeatures.available ? "Working" : "Error", notes: "Drag & drop, batch", ok: apiFeatures.available },
-    { feature: "Quality Analysis", status: "Working", notes: "Brightness, blur, entropy analysis", ok: true },
-    { feature: "Duplicate Detection", status: "Working", notes: "SHA-256 + perceptual hash", ok: true },
-    { feature: "Annotation UI", status: "Working", notes: "Bounding box drawing", ok: true },
-    { feature: "Annotation Validation", status: "Working", notes: "Health score computed", ok: true },
-    { feature: "Dataset Splitting", status: "Working", notes: "Deterministic with seed", ok: true },
-    { feature: "Training (Python)", status: hasTrainingExperiments ? "Available" : "External", notes: hasTrainingExperiments ? `${experimentCount} experiments` : "Requires PyTorch + GPU", ok: hasTrainingExperiments },
+    { feature: "Database (PostgreSQL)", status: dbOk ? "Working" : "Error", notes: healthData?.services?.database?.detail || "Checking...", ok: dbOk },
+    { feature: "Dataset Management", status: dbOk ? "Working" : "Error", notes: `${datasetCount ?? 0} datasets`, ok: dbOk },
+    { feature: "Image Upload & Ingest", status: dbOk && storageOk ? "Working" : "Error", notes: storageOk ? "Drag & drop, batch" : "Storage unavailable", ok: dbOk && storageOk },
+    { feature: "Quality Analysis", status: dbOk ? "Working" : "Error", notes: "Brightness, blur, entropy analysis", ok: dbOk },
+    { feature: "Duplicate Detection", status: dbOk ? "Working" : "Error", notes: "SHA-256 + perceptual hash", ok: dbOk },
+    { feature: "Annotation UI", status: dbOk ? "Working" : "Error", notes: "Bounding box drawing", ok: dbOk },
+    { feature: "Annotation Validation", status: dbOk ? "Working" : "Error", notes: "Health score computed", ok: dbOk },
+    { feature: "Dataset Splitting", status: dbOk ? "Working" : "Error", notes: "Deterministic with seed", ok: dbOk },
+    { feature: "Training (Python)", status: hasTrainingExperiments ? "Available" : trainingAvailable ? "Ready" : "External", notes: hasTrainingExperiments ? `${experimentCount} experiments` : trainingAvailable ? "ai/train.py ready" : "Requires PyTorch", ok: hasTrainingExperiments || trainingAvailable },
     { feature: "Inference", status: hasModels ? "Available" : "External", notes: hasModels ? "Model registered" : "Requires trained model", ok: hasModels },
     { feature: "Webcam Capture", status: "Browser-dependent", notes: "Requires HTTPS + permissions", ok: false },
-    { feature: "CUDA GPU Training", status: "GPU Required", notes: "CPU fallback available", ok: false },
+    { feature: "CUDA GPU Training", status: gpuAvailable ? "Available" : "GPU Required", notes: gpuAvailable ? "CUDA detected" : "CPU fallback available", ok: gpuAvailable },
     { feature: "Kaggle Upload", status: "Not Implemented", notes: "Export package available", ok: false },
   ];
 
@@ -76,13 +68,28 @@ export default function SystemPage() {
         </button>
       </div>
 
+      {/* Mode banner */}
+      {healthData && (
+        <div className={`glass-card-solid p-4 border ${healthData.ok ? "border-emerald-500/30 bg-emerald-500/5" : "border-amber-500/30 bg-amber-500/5"}`}>
+          <div className="flex items-center gap-3">
+            {healthData.ok ? <CheckCircle2 className="w-5 h-5 text-emerald-400" /> : <AlertTriangleIcon />}
+            <div>
+              <p className="text-sm font-bold">{healthData.mode}</p>
+              <p className="text-xs text-[#94a3b8]">
+                {healthData.ok ? "All core services operational" : "Some services degraded — check details below"}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* System Info */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
         {[
-          { icon: Database, label: "Database", value: loading ? "Checking..." : dbOk ? "PostgreSQL" : "Disconnected", detail: "Drizzle ORM", color: dbOk ? "text-emerald-400" : "text-rose-400", ok: dbOk },
-          { icon: Monitor, label: "GPU", value: "Not Available", detail: "CPU training mode", color: "text-amber-400", ok: false },
-          { icon: HardDrive, label: "Storage", value: diskUsage || "Checking...", detail: "Local dataset storage", color: "text-blue-400", ok: diskUsage !== null },
-          { icon: Cpu, label: "Python AI", value: loading ? "Checking..." : "Available", detail: "ai/ directory present", color: "text-violet-400", ok: true },
+          { icon: Database, label: "Database", value: loading ? "Checking..." : dbOk ? "PostgreSQL" : "Disconnected", detail: healthData?.services?.database?.detail || "Drizzle ORM", color: dbOk ? "text-emerald-400" : "text-rose-400", ok: dbOk },
+          { icon: Monitor, label: "GPU", value: gpuAvailable ? "CUDA Available" : "Not Available", detail: gpuAvailable ? healthData?.services?.gpu?.detail : "CPU training mode", color: gpuAvailable ? "text-emerald-400" : "text-amber-400", ok: gpuAvailable },
+          { icon: HardDrive, label: "Storage", value: loading ? "Checking..." : storageOk ? "Available" : "Error", detail: healthData?.services?.storage?.detail || "Local dataset storage", color: storageOk ? "text-blue-400" : "text-rose-400", ok: storageOk },
+          { icon: Cpu, label: "Python AI", value: loading ? "Checking..." : pythonOk ? healthData?.services?.python?.detail || "Available" : "Not Found", detail: pythonOk ? "ai/ directory verified" : "Python not found", color: pythonOk ? "text-violet-400" : "text-rose-400", ok: pythonOk },
         ].map(s => (
           <div key={s.label} className="metric-card">
             <s.icon className={`w-5 h-5 ${s.color} mb-2`} />
@@ -99,14 +106,16 @@ export default function SystemPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
           {[
             { key: "Platform", value: "VisionBharat DataGenesis 2026" },
-            { key: "Version", value: "1.0.0" },
+            { key: "Version", value: healthData?.version || "1.0.0" },
             { key: "Frontend", value: "Next.js 16 + React 19 + TypeScript" },
             { key: "UI", value: "Tailwind CSS 4" },
             { key: "Database", value: dbOk ? "PostgreSQL — Connected" : "PostgreSQL — Disconnected" },
-            { key: "AI Framework", value: "PyTorch (Python — separate process)" },
+            { key: "AI Framework", value: pythonOk ? "PyTorch (Python — available)" : "PyTorch (Python — not found)" },
             { key: "Image Processing", value: "OpenCV + Pillow" },
             { key: "Numerical", value: "NumPy" },
-            { key: "Mode", value: "Offline / Demo" },
+            { key: "Mode", value: healthData?.mode || "Checking..." },
+            { key: "Training Entry", value: trainingAvailable ? "ai/train.py — Ready" : "External process" },
+            { key: "GPU", value: gpuAvailable ? healthData?.services?.gpu?.detail : "CPU fallback" },
             { key: "Project Lead", value: "Arul Maria Agnes" },
             { key: "Institution", value: "Ramco Institute of Technology, Rajapalayam" },
             { key: "Competition", value: "DataGenesis 2026 National AI & CV Hackathon" },
@@ -148,7 +157,7 @@ export default function SystemPage() {
                 <td className="text-xs font-semibold">{f.feature}</td>
                 <td>
                   <span className={`text-[10px] px-2 py-0.5 rounded ${
-                    f.status === "Working" || f.status === "Available" ? "badge-success" :
+                    f.status === "Working" || f.status === "Available" || f.status === "Ready" ? "badge-success" :
                     f.status === "External" ? "badge-info" :
                     f.status === "GPU Required" ? "badge-warning" :
                     f.status === "Error" ? "badge-error" : "badge-neutral"
@@ -192,5 +201,14 @@ export default function SystemPage() {
         <p className="text-xs text-[#64748b] mt-1">Project Lead: Arul Maria Agnes</p>
       </div>
     </div>
+  );
+}
+
+function AlertTriangleIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 text-amber-400">
+      <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>
+      <path d="M12 9v4"/><path d="M12 17h.01"/>
+    </svg>
   );
 }

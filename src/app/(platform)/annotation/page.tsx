@@ -6,6 +6,13 @@ import { useApi, apiPost, apiDelete, apiPut } from "@/lib/hooks";
 import { useWorkflowState } from "@/lib/useWorkflowState";
 import { NextStepCard, HelpCard, PageHeader, InfoBar } from "@/components/workflow";
 
+interface Dataset {
+  id: string;
+  name: string;
+  datasetId?: string;
+  imageCount?: number;
+}
+
 interface ImageRecord {
   id: string;
   datasetId: string;
@@ -41,9 +48,11 @@ interface ClassRecord {
   name: string;
   classIndex: number;
   color?: string;
+  annotationCount?: number;
 }
 
 const CLASS_COLORS: Record<string, string> = {
+  "person": "#10b981",
   "Clay Diya": "#f59e0b", "Brass Diya": "#ef4444", "Hanging Diya": "#8b5cf6",
   "Multi-wick Diya": "#06b6d4", "Kuthu Vilakku": "#10b981", "Temple Bell": "#f97316",
   "Incense Holder": "#ec4899", "Ritual Plate": "#6366f1",
@@ -57,11 +66,12 @@ function getColorForClass(cls: string, classes: ClassRecord[]) {
 }
 
 export default function AnnotationPage() {
-  const [datasetId, setDatasetId] = useState("");
+  const [selectedDatasetUuid, setSelectedDatasetUuid] = useState<string | null>(null);
   const [imageIndex, setImageIndex] = useState(0);
   const [selectedClass, setSelectedClass] = useState("");
   const [selectedTool, setSelectedTool] = useState<"select" | "draw">("draw");
-  const [annotations, setAnnotations] = useState<AnnotationRecord[]>([]);
+  // Local temp annotations (not yet saved)
+  const [localAnnotations, setLocalAnnotations] = useState<AnnotationRecord[]>([]);
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [drawing, setDrawing] = useState(false);
@@ -71,7 +81,23 @@ export default function AnnotationPage() {
   const { state: workflow, refetch: refetchWorkflow } = useWorkflowState();
   const canvasRef = useRef<HTMLDivElement>(null);
 
-  const imagesUrl = datasetId ? `/api/images?datasetId=${datasetId}&limit=500` : null;
+  // Load available datasets
+  const { data: datasetsData, loading: datasetsLoading } = useApi<Dataset[]>("/api/datasets");
+  const datasetsArray = useMemo(() => {
+    if (Array.isArray(datasetsData)) return datasetsData;
+    return [];
+  }, [datasetsData]);
+
+  // Auto-select first dataset using initial state pattern
+  const [initialSelectionDone, setInitialSelectionDone] = useState(false);
+  useEffect(() => {
+    if (datasetsArray.length > 0 && !initialSelectionDone) {
+      setSelectedDatasetUuid(datasetsArray[0].id);
+      setInitialSelectionDone(true);
+    }
+  }, [datasetsArray, initialSelectionDone]);
+
+  const imagesUrl = selectedDatasetUuid ? `/api/images?datasetId=${selectedDatasetUuid}&limit=500` : null;
   const { data: imagesData, loading: imagesLoading } = useApi<{ success: boolean; data: ImageRecord[] }>(imagesUrl);
 
   const images: ImageRecord[] = imagesData?.data ?? [];
@@ -80,11 +106,14 @@ export default function AnnotationPage() {
   const annotationsUrl = currentImage ? `/api/annotations?imageId=${currentImage.id}` : null;
   const { data: annData, loading: annLoading, refetch: refetchAnnotations } = useApi<{ annotations: AnnotationRecord[] }>(annotationsUrl);
 
-  const classesUrl = datasetId ? `/api/classes?datasetId=${datasetId}` : null;
+  const classesUrl = selectedDatasetUuid ? `/api/classes?datasetId=${selectedDatasetUuid}` : null;
   const { data: classesData } = useApi<{ classes: ClassRecord[] }>(classesUrl);
   const classes: ClassRecord[] = classesData?.classes ?? [];
 
-  const effectiveAnnotations = annData?.annotations || [];
+  // Annotations are derived directly from the fetched data
+  const fetchedAnnotations = annData?.annotations || [];
+  // Merge fetched + local temp annotations for display
+  const effectiveAnnotations = useMemo(() => [...fetchedAnnotations, ...localAnnotations], [fetchedAnnotations, localAnnotations]);
   const effectiveSelectedClass = selectedClass || classes[0]?.name || "";
   const effectiveCanvasSize = useMemo(() =>
     currentImage?.width && currentImage?.height
@@ -133,28 +162,30 @@ export default function AnnotationPage() {
       id: `temp-${Date.now()}`,
       imageId: currentImage.id,
       datasetId: currentImage.datasetId,
-      className: selectedClass || "Unknown",
+      className: effectiveSelectedClass || "Unknown",
       x: drawRect.x,
       y: drawRect.y,
       width: drawRect.w,
       height: drawRect.h,
     };
-    setUndoStack(prev => [...prev, [...annotations]]);
-    setAnnotations(prev => [...prev, newAnnotation]);
+    setUndoStack(prev => [...prev, [...localAnnotations]]);
+    setLocalAnnotations(prev => [...prev, newAnnotation]);
     setDrawing(false);
     setDrawStart(null);
     setDrawRect(null);
-  }, [drawing, drawRect, currentImage, selectedClass, annotations]);
+  }, [drawing, drawRect, currentImage, effectiveSelectedClass, localAnnotations]);
 
   const saveAnnotations = useCallback(async () => {
     if (!currentImage) return;
     setIsSaving(true);
     try {
-      for (const ann of annotations) {
+      for (const ann of localAnnotations) {
         if (ann.id.startsWith("temp-")) {
+          const cls = classes.find(c => c.name === ann.className);
           await apiPost("/api/annotations", {
             imageId: currentImage.id,
             datasetId: currentImage.datasetId,
+            classId: cls?.id || null,
             className: ann.className,
             x: ann.x,
             y: ann.y,
@@ -165,6 +196,8 @@ export default function AnnotationPage() {
           });
         }
       }
+      setLocalAnnotations([]);
+      setUndoStack([]);
       refetchAnnotations();
       refetchWorkflow();
     } catch (err) {
@@ -172,11 +205,11 @@ export default function AnnotationPage() {
     } finally {
       setIsSaving(false);
     }
-  }, [currentImage, annotations, effectiveCanvasSize, refetchAnnotations, refetchWorkflow]);
+  }, [currentImage, localAnnotations, classes, effectiveCanvasSize, refetchAnnotations, refetchWorkflow]);
 
   const deleteAnnotation = useCallback(async (ann: AnnotationRecord) => {
-    setUndoStack(prev => [...prev, [...annotations]]);
-    setAnnotations(prev => prev.filter(a => a.id !== ann.id));
+    setUndoStack(prev => [...prev, [...localAnnotations]]);
+    setLocalAnnotations(prev => prev.filter(a => a.id !== ann.id));
     if (!ann.id.startsWith("temp-")) {
       try {
         await apiDelete(`/api/annotations?id=${ann.id}`);
@@ -185,12 +218,12 @@ export default function AnnotationPage() {
         console.error("Delete failed:", err);
       }
     }
-  }, [annotations, refetchAnnotations]);
+  }, [localAnnotations, refetchAnnotations]);
 
   const undo = useCallback(() => {
     if (undoStack.length === 0) return;
     const prev = undoStack[undoStack.length - 1];
-    setAnnotations(prev);
+    setLocalAnnotations(prev);
     setUndoStack(stack => stack.slice(0, -1));
   }, [undoStack]);
 
@@ -199,22 +232,22 @@ export default function AnnotationPage() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       if (e.key === "d" || e.key === "D") setSelectedTool("draw");
       if (e.key === "v" || e.key === "V") setSelectedTool("select");
       if (e.key === "a" || e.key === "A") goPrev();
-      if ((e.key === "d" || e.key === "D") && !e.ctrlKey && !e.metaKey) { /* handled above */ }
-      else if (e.key === "d" || e.key === "D") { /* no-op for ctrl+d */ }
+      if (e.key === "n" || e.key === "N") goNext();
       if (e.key === "Delete" && selectedAnnotationId) {
-        const ann = annotations.find(a => a.id === selectedAnnotationId);
+        const ann = effectiveAnnotations.find(a => a.id === selectedAnnotationId);
         if (ann) deleteAnnotation(ann);
       }
       if (e.key === "z" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); undo(); }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [selectedAnnotationId, annotations, deleteAnnotation, undo, goPrev]);
+  }, [selectedAnnotationId, effectiveAnnotations, deleteAnnotation, undo, goPrev, goNext]);
 
-  const imageSrc = currentImage?.filepath
+  const imageSrc = currentImage
     ? `/api/serve/${currentImage.datasetId}/${currentImage.filename}`
     : null;
 
@@ -223,20 +256,24 @@ export default function AnnotationPage() {
       <div className="flex items-center justify-between">
         <PageHeader title="Annotation Studio" subtitle="Draw bounding boxes and assign class labels" step={4} totalSteps={15} />
         <div className="flex items-center gap-2">
-          <input
-            type="text"
-            placeholder="Dataset ID"
-            value={datasetId}
+          {/* Dataset selector dropdown */}
+          <select
+            className="text-xs px-3 py-1.5 rounded-lg bg-[#111827] border border-[#2a3550] text-[#e2e8f0] focus:outline-none focus:border-blue-500"
+            value={selectedDatasetUuid || ""}
             onChange={e => {
-              setDatasetId(e.target.value);
+              setSelectedDatasetUuid(e.target.value || null);
               setImageIndex(0);
-              setAnnotations([]);
+              setLocalAnnotations([]);
               setSelectedAnnotationId(null);
               setUndoStack([]);
               setSelectedClass("");
             }}
-            className="text-xs px-3 py-1.5 rounded-lg bg-[#111827] border border-[#2a3550] text-[#e2e8f0] w-40 focus:outline-none focus:border-blue-500"
-          />
+          >
+            <option value="">Select dataset</option>
+            {datasetsArray.map(d => (
+              <option key={d.id} value={d.id}>{d.name} ({d.datasetId || d.id.slice(0, 8)})</option>
+            ))}
+          </select>
           {images.length > 0 && (
             <span className="text-[10px] badge-info px-2 py-0.5 rounded">
               Image {imageIndex + 1} / {images.length}
@@ -245,7 +282,7 @@ export default function AnnotationPage() {
           <button
             className="btn-secondary text-xs flex items-center gap-1"
             onClick={saveAnnotations}
-            disabled={isSaving || annotations.length === 0}
+            disabled={isSaving || localAnnotations.length === 0}
           >
             {isSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
             {isSaving ? "Saving..." : "Save"}
@@ -261,14 +298,15 @@ export default function AnnotationPage() {
             classes.map(cls => (
               <button key={cls.id} onClick={() => setSelectedClass(cls.name)}
                 className={`w-full flex items-center gap-2 p-2 rounded-lg text-xs transition-colors ${
-                  selectedClass === cls.name ? "bg-blue-500/10 border border-blue-500/30 text-blue-400" : "hover:bg-[#111827] text-[#94a3b8]"
+                  effectiveSelectedClass === cls.name ? "bg-blue-500/10 border border-blue-500/30 text-blue-400" : "hover:bg-[#111827] text-[#94a3b8]"
                 }`}>
                 <span className="w-3 h-3 rounded-sm flex-shrink-0" style={{ background: getColorForClass(cls.name, classes) }} />
                 <span className="truncate">{cls.name}</span>
+                <span className="ml-auto text-[10px] text-[#475569]">{cls.annotationCount ?? 0}</span>
               </button>
             ))
           ) : (
-            <p className="text-[10px] text-[#64748b]">Enter a dataset ID to load classes</p>
+            <p className="text-[10px] text-[#64748b]">Select a dataset to load classes</p>
           )}
           <div className="border-t border-[#2a3550] pt-2 mt-2">
             <h3 className="text-xs font-semibold text-[#94a3b8] uppercase mb-1">Keyboard Shortcuts</h3>
@@ -277,7 +315,7 @@ export default function AnnotationPage() {
               <p><kbd className="px-1 bg-[#111827] rounded text-[#94a3b8]">V</kbd> Select mode</p>
               <p><kbd className="px-1 bg-[#111827] rounded text-[#94a3b8]">Del</kbd> Delete box</p>
               <p><kbd className="px-1 bg-[#111827] rounded text-[#94a3b8]">Ctrl+Z</kbd> Undo</p>
-              <p><kbd className="px-1 bg-[#111827] rounded text-[#94a3b8]">A/D</kbd> Prev/Next image</p>
+              <p><kbd className="px-1 bg-[#111827] rounded text-[#94a3b8]">A/N</kbd> Prev/Next image</p>
             </div>
           </div>
         </div>
@@ -301,7 +339,10 @@ export default function AnnotationPage() {
             <button onClick={undo} className="p-1.5 rounded text-[#64748b] hover:text-[#94a3b8]"><Undo2 className="w-4 h-4" /></button>
             <button className="p-1.5 rounded text-[#64748b] hover:text-[#94a3b8]"><Redo2 className="w-4 h-4" /></button>
             <div className="flex-1" />
-            <span className="text-[10px] text-[#64748b] font-mono">{effectiveCanvasSize.w} × {effectiveCanvasSize.h}</span>
+            <span className="text-[10px] text-[#64748b] font-mono">{effectiveCanvasSize.w} x {effectiveCanvasSize.h}</span>
+            {currentImage && (
+              <span className="text-[10px] text-[#64748b] font-mono ml-2">{currentImage.filename}</span>
+            )}
           </div>
 
           {/* Canvas Area */}
@@ -315,10 +356,10 @@ export default function AnnotationPage() {
               onMouseUp={handleCanvasMouseUp}
               onMouseLeave={handleCanvasMouseUp}
             >
-              {!datasetId ? (
+              {!selectedDatasetUuid ? (
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-[#64748b]">
                   <Database className="w-8 h-8 mb-2 opacity-50" />
-                  <p className="text-xs font-semibold uppercase">Enter a Dataset ID</p>
+                  <p className="text-xs font-semibold uppercase">Select a Dataset</p>
                 </div>
               ) : imagesLoading ? (
                 <div className="absolute inset-0 flex items-center justify-center">
@@ -335,9 +376,13 @@ export default function AnnotationPage() {
                   {imageSrc ? (
                     <img
                       src={imageSrc}
-                      alt=""
+                      alt={currentImage.filename}
                       className="absolute inset-0 w-full h-full object-contain"
                       draggable={false}
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        target.style.display = "none";
+                      }}
                     />
                   ) : (
                     <div className="absolute inset-0 bg-[#111827] flex items-center justify-center">
@@ -346,7 +391,7 @@ export default function AnnotationPage() {
                   )}
 
                   <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox={`0 0 ${effectiveCanvasSize.w} ${effectiveCanvasSize.h}`}>
-                    {annotations.map(ann => {
+                    {effectiveAnnotations.map(ann => {
                       const color = getColorForClass(ann.className, classes);
                       const isSelected = ann.id === selectedAnnotationId;
                       return (
@@ -381,7 +426,7 @@ export default function AnnotationPage() {
             <button onClick={goPrev} disabled={imageIndex === 0} className="btn-secondary text-[10px] px-3 py-1 flex items-center gap-1 disabled:opacity-40">
               <ChevronLeft className="w-3 h-3" /> Previous
             </button>
-            <span className="text-[10px] text-[#64748b]">Press A/D for quick navigation</span>
+            <span className="text-[10px] text-[#64748b]">Press A/N for quick navigation</span>
             <button onClick={goNext} disabled={imageIndex >= images.length - 1} className="btn-secondary text-[10px] px-3 py-1 flex items-center gap-1 disabled:opacity-40">
               Next <ChevronRight className="w-3 h-3" />
             </button>
@@ -391,16 +436,16 @@ export default function AnnotationPage() {
         {/* Right: Annotation List */}
         <div className="glass-card-solid p-3 space-y-2 overflow-auto">
           <h3 className="text-xs font-semibold text-[#94a3b8] uppercase">
-            Annotations ({annotations.length})
+            Annotations ({effectiveAnnotations.length})
           </h3>
-          {annotations.length === 0 ? (
+          {effectiveAnnotations.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-8 text-[#64748b]">
               <PenTool className="w-6 h-6 mb-2 opacity-40" />
               <p className="text-[10px]">No annotations</p>
               <p className="text-[9px] mt-1">Draw a box on the canvas</p>
             </div>
           ) : (
-            annotations.map(ann => (
+            effectiveAnnotations.map(ann => (
               <div
                 key={ann.id}
                 onClick={() => setSelectedAnnotationId(ann.id)}
@@ -436,7 +481,7 @@ export default function AnnotationPage() {
           <div className="border-t border-[#2a3550] pt-2 mt-2">
             <h3 className="text-xs font-semibold text-[#94a3b8] uppercase mb-1">Validation</h3>
             <div className="space-y-1 text-[10px]">
-              {annotations.length === 0 ? (
+              {effectiveAnnotations.length === 0 ? (
                 <div className="flex items-center gap-1 text-[#64748b]"><PenTool className="w-3 h-3" /> No annotations to validate</div>
               ) : (
                 <>
@@ -453,7 +498,7 @@ export default function AnnotationPage() {
       {workflow && <NextStepCard currentStep={workflow.currentStep} completedSteps={workflow.completedSteps} />}
 
       <HelpCard title="How annotation works">
-        <p className="mb-2"><strong>Step 1:</strong> Select an image from the navigation.</p>
+        <p className="mb-2"><strong>Step 1:</strong> Select a dataset from the dropdown.</p>
         <p className="mb-2"><strong>Step 2:</strong> Draw a box around each object you want the model to detect.</p>
         <p className="mb-2"><strong>Step 3:</strong> Choose the object&apos;s class from the left panel.</p>
         <p><strong>Step 4:</strong> Click Save to store your annotations in the database.</p>

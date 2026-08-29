@@ -2,18 +2,22 @@ import { NextRequest } from "next/server";
 import { db } from "@/db";
 import { evaluations, models, images } from "@/db/schema";
 import { eq, desc, sql } from "drizzle-orm";
+import { resolveDatasetIdentifier } from "@/lib/dataset";
 
 export async function GET(request: NextRequest) {
   try {
     const url = new URL(request.url);
     const modelId = url.searchParams.get("modelId");
-    const datasetId = url.searchParams.get("datasetId");
+    const datasetIdParam = url.searchParams.get("datasetId");
 
     let query = db.select().from(evaluations);
     if (modelId) {
       query = query.where(eq(evaluations.modelId, modelId)) as typeof query;
-    } else if (datasetId) {
-      query = query.where(eq(evaluations.datasetId, datasetId)) as typeof query;
+    } else if (datasetIdParam) {
+      const ds = await resolveDatasetIdentifier(datasetIdParam);
+      if (ds) {
+        query = query.where(eq(evaluations.datasetId, ds.id)) as typeof query;
+      }
     }
 
     const result = await query.orderBy(desc(evaluations.createdAt)).limit(100);
@@ -42,18 +46,21 @@ export async function POST(request: NextRequest) {
     }
 
     let totalImages = 0;
+    let resolvedDatasetId = datasetId;
     if (datasetId) {
+      const ds = await resolveDatasetIdentifier(datasetId);
+      if (ds) resolvedDatasetId = ds.id;
       const countResult = await db
         .select({ count: sql<number>`count(*)::int` })
         .from(images)
-        .where(eq(images.datasetId, datasetId));
+        .where(eq(images.datasetId, resolvedDatasetId));
       totalImages = countResult[0].count;
     }
 
     const inserted = await db.insert(evaluations).values({
       modelId,
       experimentId: experimentId || null,
-      datasetId: datasetId || null,
+      datasetId: resolvedDatasetId || null,
       evalType,
       iouThreshold,
       confidenceThreshold,
