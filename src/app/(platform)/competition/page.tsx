@@ -26,8 +26,8 @@ interface Model {
 
 export default function CompetitionPage() {
   const { state: workflow } = useWorkflowState();
-  const { data: datasetsData } = useApi<Dataset[] | { value: Dataset[] }>("/api/datasets");
-  const datasets = Array.isArray(datasetsData) ? datasetsData : (datasetsData && "value" in datasetsData ? datasetsData.value : []);
+  const { data: datasetsData } = useApi<Dataset[]>("/api/datasets");
+  const datasets = Array.isArray(datasetsData) ? datasetsData : [];
   const dataset = datasets[0] ?? null;
 
   const { data: modelsData } = useApi<{ models: Model[]; total: number }>("/api/models");

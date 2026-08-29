@@ -172,7 +172,17 @@ export default function EvaluationPage() {
         </div>
       )}
 
-      {workflow && <NextStepCard currentStep={workflow.currentStep} completedSteps={workflow.completedSteps} />}
+      {workflow && (
+        <NextStepCard
+          currentStep={workflow.currentStep}
+          completedSteps={workflow.completedSteps}
+          totalImages={workflow.totalImages}
+          annotatedImages={workflow.annotatedImages}
+          unannotatedImages={workflow.unannotatedImages}
+          qualityComplete={workflow.qualityComplete}
+          blockers={workflow.blockers}
+        />
+      )}
 
       <HelpCard title="What is evaluation?">
         <p className="mb-2">Evaluation measures your model&apos;s performance on test images it has never seen during training.</p>

@@ -48,6 +48,7 @@ export default function TrainingPage() {
   const [starting, setStarting] = useState(false);
   const [trainResult, setTrainResult] = useState<string | null>(null);
   const { state: workflow, refetch: refetchWorkflow } = useWorkflowState();
+  const { data: healthData } = useApi<{ gpu: string; python: string }>("/api/health");
 
   const { data: datasets } = useApi<Dataset[]>("/api/datasets");
   const datasetsArray = Array.isArray(datasets) ? datasets : [];
@@ -153,12 +154,15 @@ export default function TrainingPage() {
       {/* Prerequisites */}
       <div className="glass-card-solid p-4">
         <h3 className="text-xs font-semibold text-[#94a3b8] uppercase tracking-wider mb-3">Training Readiness</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
           {[
-            { label: "Dataset", done: !!effectiveDatasetId, detail: selectedDataset?.name ?? "None selected" },
-            { label: "Images", done: imageCount > 0, detail: `${imageCount} images` },
-            { label: "Classes", done: (selectedDataset?.classCount ?? 0) > 0, detail: `${selectedDataset?.classCount ?? 0} classes` },
-            { label: "Annotations", done: annotationCount > 0, detail: `${annotationCount} / ${imageCount}`, blocked: annotationCount === 0 && imageCount > 0 },
+            { label: "Dataset selected", done: !!effectiveDatasetId, detail: selectedDataset?.name ?? "None selected" },
+            { label: "Images loaded", done: imageCount > 0, detail: `${imageCount} images`, blocked: imageCount === 0 && !!effectiveDatasetId },
+            { label: "Classes defined", done: (selectedDataset?.classCount ?? 0) > 0, detail: `${selectedDataset?.classCount ?? 0} class(es)`, blocked: (selectedDataset?.classCount ?? 0) === 0 && imageCount > 0 },
+            { label: "Annotations complete", done: workflow?.annotationComplete, detail: `${annotationCount} / ${imageCount} images annotated`, blocked: !workflow?.annotationComplete && annotationCount > 0 },
+            { label: "Quality analyzed", done: workflow?.qualityComplete, detail: workflow?.qualityReportCount ? `${workflow.qualityReportCount} / ${imageCount} analyzed` : "Not started", blocked: !workflow?.qualityComplete && workflow?.hasQualityReports },
+            { label: "Dataset split", done: workflow?.hasSplits, detail: workflow?.hasSplits ? "Created" : "Not created", blocked: !workflow?.hasSplits && workflow?.annotationComplete },
+            { label: "Dataset versioned", done: workflow?.hasVersions, detail: workflow?.hasVersions ? "Created" : "Not created", blocked: !workflow?.hasVersions && workflow?.hasSplits },
           ].map((item) => (
             <div key={item.label} className="flex items-center gap-2 p-2 rounded-lg bg-[#111827]">
               {item.done ? <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" /> : item.blocked ? <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0" /> : <div className="w-4 h-4 rounded-full border-2 border-[#2a3550] flex-shrink-0" />}
@@ -169,6 +173,11 @@ export default function TrainingPage() {
             </div>
           ))}
         </div>
+        {workflow?.blockers && workflow.blockers.length > 0 && (
+          <div className="mt-3 p-2 bg-amber-500/10 border border-amber-500/20 rounded text-[10px] text-amber-400">
+            {workflow.blockers.map((b, i) => <div key={i}>• {b}</div>)}
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -240,9 +249,9 @@ export default function TrainingPage() {
         <h3 className="text-sm font-semibold flex items-center gap-2 mb-3"><Monitor className="w-4 h-4 text-emerald-400" /> Hardware</h3>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="p-3 bg-[#111827] rounded text-center"><Cpu className="w-4 h-4 text-blue-400 mx-auto mb-1" /><p className="text-xs font-bold">CPU</p><p className="text-[10px] text-[#64748b]">Available</p></div>
-          <div className="p-3 bg-[#111827] rounded text-center"><Monitor className="w-4 h-4 text-amber-400 mx-auto mb-1" /><p className="text-xs font-bold">GPU</p><p className="text-[10px] text-[#64748b]">Not Available</p></div>
-          <div className="p-3 bg-[#111827] rounded text-center"><Clock className="w-4 h-4 text-violet-400 mx-auto mb-1" /><p className="text-xs font-bold">Est. Time</p><p className="text-[10px] text-[#64748b]">~2-3 hrs (CPU)</p></div>
-          <div className="p-3 bg-[#111827] rounded text-center"><Activity className="w-4 h-4 text-emerald-400 mx-auto mb-1" /><p className="text-xs font-bold">Speed</p><p className="text-[10px] text-[#64748b]">~10 img/sec</p></div>
+          <div className="p-3 bg-[#111827] rounded text-center"><Monitor className={`w-4 h-4 mx-auto mb-1 ${healthData?.gpu === "available" ? "text-emerald-400" : "text-amber-400"}`} /><p className="text-xs font-bold">GPU</p><p className="text-[10px] text-[#64748b]">{healthData?.gpu === "available" ? "Available" : "Not Available"}</p></div>
+          <div className="p-3 bg-[#111827] rounded text-center"><Clock className="w-4 h-4 text-violet-400 mx-auto mb-1" /><p className="text-xs font-bold">Est. Time</p><p className="text-[10px] text-[#64748b]">{healthData?.gpu === "available" ? "~20 min (GPU)" : "~2-3 hrs (CPU)"}</p></div>
+          <div className="p-3 bg-[#111827] rounded text-center"><Activity className="w-4 h-4 text-emerald-400 mx-auto mb-1" /><p className="text-xs font-bold">Speed</p><p className="text-[10px] text-[#64748b]">{healthData?.gpu === "available" ? "~50 img/sec" : "~10 img/sec"}</p></div>
         </div>
       </div>
 
@@ -264,7 +273,17 @@ export default function TrainingPage() {
         </div>
       )}
 
-      {workflow && <NextStepCard currentStep={workflow.currentStep} completedSteps={workflow.completedSteps} />}
+      {workflow && (
+        <NextStepCard
+          currentStep={workflow.currentStep}
+          completedSteps={workflow.completedSteps}
+          totalImages={workflow.totalImages}
+          annotatedImages={workflow.annotatedImages}
+          unannotatedImages={workflow.unannotatedImages}
+          qualityComplete={workflow.qualityComplete}
+          blockers={workflow.blockers}
+        />
+      )}
 
       <HelpCard title="How training works">
         <p className="mb-2">Training adjusts the model so it learns patterns from your annotated images.</p>

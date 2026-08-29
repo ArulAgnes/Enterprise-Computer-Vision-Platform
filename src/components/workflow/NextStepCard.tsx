@@ -1,18 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, CheckCircle2 } from "lucide-react";
+import { ArrowRight, CheckCircle2, AlertTriangle } from "lucide-react";
 import { WORKFLOW_STEPS, type WorkflowStep } from "./WorkflowStepper";
 
 interface NextStepCardProps {
   currentStep: number;
   completedSteps: number[];
   customMessage?: string;
+  totalImages?: number;
+  annotatedImages?: number;
+  unannotatedImages?: number;
+  qualityComplete?: boolean;
+  blockers?: string[];
 }
 
-export function NextStepCard({ currentStep, completedSteps, customMessage }: NextStepCardProps) {
+export function NextStepCard({ currentStep, completedSteps, customMessage, totalImages, annotatedImages, unannotatedImages, qualityComplete, blockers }: NextStepCardProps) {
   const current = WORKFLOW_STEPS.find(s => s.number === currentStep);
-  const next = WORKFLOW_STEPS.find(s => s.number === currentStep + 1);
 
   if (!current) return null;
 
@@ -32,6 +36,17 @@ export function NextStepCard({ currentStep, completedSteps, customMessage }: Nex
     );
   }
 
+  const nextStep = WORKFLOW_STEPS.find(s => s.number === currentStep + 1);
+  const nextStepDone = nextStep ? completedSteps.includes(nextStep.number) : false;
+
+  const isAnnotating = currentStep === 4;
+  const annotationProgress = totalImages && annotatedImages !== undefined
+    ? `${annotatedImages} / ${totalImages} images annotated`
+    : undefined;
+  const remainingAnnotate = unannotatedImages !== undefined && unannotatedImages > 0
+    ? `${unannotatedImages} remaining`
+    : undefined;
+
   return (
     <div className="glass-card p-4 border-blue-500/30 bg-blue-500/5">
       <div className="flex items-center justify-between">
@@ -44,16 +59,34 @@ export function NextStepCard({ currentStep, completedSteps, customMessage }: Nex
             <h3 className="text-sm font-bold">
               Step {current.number}: {current.label}
             </h3>
-            <p className="text-xs text-[#94a3b8]">{customMessage || current.description}</p>
+            {isAnnotating && annotationProgress ? (
+              <div className="flex items-center gap-2 mt-1">
+                <p className="text-xs text-[#94a3b8]">{annotationProgress}</p>
+                {remainingAnnotate && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                    {remainingAnnotate}
+                  </span>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-[#94a3b8]">{customMessage || current.description}</p>
+            )}
+            {blockers && blockers.length > 0 && (
+              <div className="flex items-center gap-1 mt-1">
+                <AlertTriangle className="w-3 h-3 text-amber-400" />
+                <span className="text-[10px] text-amber-400">{blockers[0]}</span>
+              </div>
+            )}
           </div>
         </div>
-        {next && (
+        {nextStep && (
           <Link
-            href={next.href}
+            href={nextStep.href}
             className="btn-primary text-xs flex items-center gap-1 whitespace-nowrap"
           >
-            Next: {next.shortLabel}
-            <ArrowRight className="w-3 h-3" />
+            Next: {nextStep.shortLabel}
+            {nextStepDone && <CheckCircle2 className="w-3 h-3 text-emerald-400" />}
+            {!nextStepDone && <ArrowRight className="w-3 h-3" />}
           </Link>
         )}
       </div>

@@ -172,7 +172,7 @@ export default function SystemPage() {
 
       {/* Security */}
       <div className="glass-card-solid p-5">
-        <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><ShieldCheck className="w-4 h-4 text-emerald-400" /> Security</h3>
+        <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><ShieldCheck className="w-4 h-4 text-emerald-400" /> Security <span className="text-[10px] text-[#64748b] font-normal">(design claims)</span></h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[10px]">
           {[
             { label: "File type validation", ok: true },

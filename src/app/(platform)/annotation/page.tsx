@@ -122,16 +122,34 @@ export default function AnnotationPage() {
     [currentImage]
   );
 
+  const getImageLayout = useCallback(() => {
+    if (!canvasRef.current) return { offsetX: 0, offsetY: 0, renderedW: effectiveCanvasSize.w, renderedH: effectiveCanvasSize.h, scale: 1 };
+    const rect = canvasRef.current.getBoundingClientRect();
+    const containerW = rect.width;
+    const containerH = rect.height;
+    const imgW = effectiveCanvasSize.w;
+    const imgH = effectiveCanvasSize.h;
+    const scale = Math.min(containerW / imgW, containerH / imgH);
+    const renderedW = imgW * scale;
+    const renderedH = imgH * scale;
+    const offsetX = (containerW - renderedW) / 2;
+    const offsetY = (containerH - renderedH) / 2;
+    return { offsetX, offsetY, renderedW, renderedH, scale };
+  }, [effectiveCanvasSize]);
+
   const getCanvasCoords = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!canvasRef.current) return { x: 0, y: 0 };
     const rect = canvasRef.current.getBoundingClientRect();
-    const scaleX = effectiveCanvasSize.w / rect.width;
-    const scaleY = effectiveCanvasSize.h / rect.height;
+    const { offsetX, offsetY, scale } = getImageLayout();
+    const containerX = e.clientX - rect.left;
+    const containerY = e.clientY - rect.top;
+    const imgX = (containerX - offsetX) / scale;
+    const imgY = (containerY - offsetY) / scale;
     return {
-      x: Math.round((e.clientX - rect.left) * scaleX),
-      y: Math.round((e.clientY - rect.top) * scaleY),
+      x: Math.max(0, Math.min(Math.round(imgX), effectiveCanvasSize.w)),
+      y: Math.max(0, Math.min(Math.round(imgY), effectiveCanvasSize.h)),
     };
-  }, [effectiveCanvasSize]);
+  }, [effectiveCanvasSize, getImageLayout]);
 
   const handleCanvasMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (selectedTool !== "draw") return;
@@ -144,12 +162,14 @@ export default function AnnotationPage() {
   const handleCanvasMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!drawing || !drawStart) return;
     const coords = getCanvasCoords(e);
-    const x = Math.min(drawStart.x, coords.x);
-    const y = Math.min(drawStart.y, coords.y);
-    const w = Math.abs(coords.x - drawStart.x);
-    const h = Math.abs(coords.y - drawStart.y);
-    setDrawRect({ x, y, w, h });
-  }, [drawing, drawStart, getCanvasCoords]);
+    const x = Math.max(0, Math.min(drawStart.x, coords.x));
+    const y = Math.max(0, Math.min(drawStart.y, coords.y));
+    const maxX = Math.max(drawStart.x, coords.x);
+    const maxY = Math.max(drawStart.y, coords.y);
+    const w = Math.min(maxX - x, effectiveCanvasSize.w - x);
+    const h = Math.min(maxY - y, effectiveCanvasSize.h - y);
+    setDrawRect({ x, y, w: Math.max(0, w), h: Math.max(0, h) });
+  }, [drawing, drawStart, getCanvasCoords, effectiveCanvasSize]);
 
   const handleCanvasMouseUp = useCallback(() => {
     if (!drawing || !drawRect || !currentImage || drawRect.w < 5 || drawRect.h < 5) {
@@ -390,7 +410,7 @@ export default function AnnotationPage() {
                     </div>
                   )}
 
-                  <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox={`0 0 ${effectiveCanvasSize.w} ${effectiveCanvasSize.h}`}>
+                  <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox={`0 0 ${effectiveCanvasSize.w} ${effectiveCanvasSize.h}`} preserveAspectRatio="xMidYMid meet">
                     {effectiveAnnotations.map(ann => {
                       const color = getColorForClass(ann.className, classes);
                       const isSelected = ann.id === selectedAnnotationId;
@@ -495,7 +515,17 @@ export default function AnnotationPage() {
         </div>
       </div>
 
-      {workflow && <NextStepCard currentStep={workflow.currentStep} completedSteps={workflow.completedSteps} />}
+      {workflow && (
+        <NextStepCard
+          currentStep={workflow.currentStep}
+          completedSteps={workflow.completedSteps}
+          totalImages={workflow.totalImages}
+          annotatedImages={workflow.annotatedImages}
+          unannotatedImages={workflow.unannotatedImages}
+          qualityComplete={workflow.qualityComplete}
+          blockers={workflow.blockers}
+        />
+      )}
 
       <HelpCard title="How annotation works">
         <p className="mb-2"><strong>Step 1:</strong> Select a dataset from the dropdown.</p>

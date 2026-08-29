@@ -127,6 +127,9 @@ export default function QualityPage() {
   const redCount = reports.filter(r => r.qualityFlag === "red").length;
   const totalReviewed = greenCount + yellowCount + redCount;
   const healthScore = totalReviewed > 0 ? ((greenCount / totalReviewed) * 100).toFixed(1) : "0.0";
+  const totalImages = workflow?.totalImages || reports.length;
+  const analyzedCount = reports.length;
+  const unanalyzedCount = totalImages - analyzedCount;
 
   const qualityMetrics = [
     { name: "Brightness", good: reports.filter(r => !r.isDark).length, review: 0, bad: reports.filter(r => r.isDark).length },
@@ -204,8 +207,9 @@ export default function QualityPage() {
       ) : (
         <>
           {/* Health Score */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
             {[
+              { icon: Image, label: "Analyzed", value: `${analyzedCount} / ${totalImages}`, color: "text-blue-400" },
               { icon: CheckCircle2, label: "Acceptable", value: greenCount, color: "text-emerald-400" },
               { icon: AlertTriangle, label: "Review", value: yellowCount, color: "text-amber-400" },
               { icon: XCircle, label: "Reject", value: redCount, color: "text-rose-400" },
@@ -310,7 +314,7 @@ export default function QualityPage() {
               <ShieldCheck className="w-4 h-4 text-blue-400" /> Annotation Health
             </h3>
             <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
-              <div className="text-center"><p className="text-2xl font-bold">{reports.length}</p><p className="text-[10px] text-[#64748b]">Total Reports</p></div>
+              <div className="text-center"><p className="text-2xl font-bold">{analyzedCount}<span className="text-sm text-[#64748b]">/{totalImages}</span></p><p className="text-[10px] text-[#64748b]">Analyzed</p></div>
               <div className="text-center"><p className="text-2xl font-bold text-emerald-400">{greenCount}</p><p className="text-[10px] text-[#64748b]">Valid</p></div>
               <div className="text-center"><p className="text-2xl font-bold text-rose-400">{redCount}</p><p className="text-[10px] text-[#64748b]">Invalid</p></div>
               <div className="text-center"><p className="text-2xl font-bold text-amber-400">{yellowCount}</p><p className="text-[10px] text-[#64748b]">Review</p></div>
@@ -325,7 +329,17 @@ export default function QualityPage() {
           </div>
         </>
       )}
-      {workflow && <NextStepCard currentStep={workflow.currentStep} completedSteps={workflow.completedSteps} />}
+      {workflow && (
+        <NextStepCard
+          currentStep={workflow.currentStep}
+          completedSteps={workflow.completedSteps}
+          totalImages={workflow.totalImages}
+          annotatedImages={workflow.annotatedImages}
+          unannotatedImages={workflow.unannotatedImages}
+          qualityComplete={workflow.qualityComplete}
+          blockers={workflow.blockers}
+        />
+      )}
 
 <HelpCard title="What is quality control?">
   <p className="mb-2">Quality control checks your images for problems that could hurt model training:</p>

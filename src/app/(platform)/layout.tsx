@@ -10,6 +10,7 @@ import {
 import { useState, useEffect } from "react";
 import { WorkflowStepper } from "@/components/workflow";
 import { useWorkflowState } from "@/lib/useWorkflowState";
+import { useApi } from "@/lib/hooks";
 
 const navSections = [
   {
@@ -64,6 +65,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
     Overview: true, Data: true, AI: true, Registry: true, Publish: true,
   });
   const { state: workflowState } = useWorkflowState();
+  const { data: healthData } = useApi<{ mode: string; database: string; storage: string }>("/api/health");
 
   useEffect(() => {
     setMobileOpen(false);
@@ -181,8 +183,10 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
 
             {/* Status */}
             <div className="flex items-center gap-2 flex-shrink-0">
-              <span className="text-[10px] px-2 py-0.5 rounded badge-success">REAL MODE</span>
-              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className={`text-[10px] px-2 py-0.5 rounded ${healthData?.mode === "DEGRADED" ? "badge-warning" : "badge-success"}`}>
+                {healthData?.mode ?? "CHECKING"}
+              </span>
+              <div className={`w-2 h-2 rounded-full ${healthData?.database === "healthy" && healthData?.storage === "healthy" ? "bg-emerald-500 animate-pulse" : "bg-amber-500"}`} />
             </div>
           </div>
 

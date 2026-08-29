@@ -490,7 +490,17 @@ export default function KagglePage() {
         </div>
       </div>
 
-      {workflow && <NextStepCard currentStep={workflow.currentStep} completedSteps={workflow.completedSteps} />}
+      {workflow && (
+        <NextStepCard
+          currentStep={workflow.currentStep}
+          completedSteps={workflow.completedSteps}
+          totalImages={workflow.totalImages}
+          annotatedImages={workflow.annotatedImages}
+          unannotatedImages={workflow.unannotatedImages}
+          qualityComplete={workflow.qualityComplete}
+          blockers={workflow.blockers}
+        />
+      )}
 
 <HelpCard title="What is Kaggle?">
   <p className="mb-2">Kaggle is where you publish your dataset for DataGenesis Round 1. The publication includes:</p>

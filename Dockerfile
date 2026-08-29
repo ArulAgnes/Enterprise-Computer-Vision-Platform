@@ -14,7 +14,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts
 COPY . .
 # Provide dummy DATABASE_URL for build-time route compilation
-ENV DATABASE_URL=postgresql://postgres:postgres@localhost:5432/visionbharat
+ENV DATABASE_URL=postgresql://postgres:postgres@localhost:5432/visionbharat1
 RUN npm run build
 
 # Stage 3: Production

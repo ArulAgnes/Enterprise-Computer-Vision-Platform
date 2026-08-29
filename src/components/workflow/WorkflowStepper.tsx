@@ -43,6 +43,9 @@ export type WorkflowState = {
   totalAnnotations: number;
   annotatedImages: number;
   hasQualityReports: boolean;
+  qualityReportCount: number;
+  qualityComplete: boolean;
+  allQualityGreen: boolean;
   hasSplits: boolean;
   hasVersions: boolean;
   hasExperiments: boolean;
@@ -50,6 +53,8 @@ export type WorkflowState = {
   hasEvaluations: boolean;
   hasKagglePublication: boolean;
   hasNotebook: boolean;
+  annotationComplete: boolean;
+  blockers: string[];
 };
 
 export function determineWorkflowState(data: {
@@ -58,6 +63,7 @@ export function determineWorkflowState(data: {
   annotations: number;
   annotatedImages: number;
   hasQualityReports: boolean;
+  qualityReportCount?: number;
   hasSplits: boolean;
   hasVersions: boolean;
   hasExperiments: boolean;
@@ -76,7 +82,7 @@ export function determineWorkflowState(data: {
   if (data.hasQualityReports) completedSteps.push(6);
   if (data.hasSplits) completedSteps.push(7);
   if (data.hasVersions) completedSteps.push(8);
-  if (data.hasExperiments) completedSteps.push(9);
+  if (data.hasTrainedModel) completedSteps.push(9);
   if (data.hasEvaluations) completedSteps.push(10);
   if (data.hasEvaluations) completedSteps.push(11);
   if (data.hasKagglePublication) completedSteps.push(12);
@@ -93,6 +99,10 @@ export function determineWorkflowState(data: {
     if (i === 15) currentStep = 15;
   }
 
+  const qualityReportCount = data.qualityReportCount ?? 0;
+  const qualityComplete = data.hasQualityReports && qualityReportCount >= data.images;
+  const allQualityGreen = qualityComplete;
+
   return {
     currentStep,
     completedSteps,
@@ -101,6 +111,9 @@ export function determineWorkflowState(data: {
     totalAnnotations: data.annotations,
     annotatedImages: data.annotatedImages,
     hasQualityReports: data.hasQualityReports,
+    qualityReportCount,
+    qualityComplete,
+    allQualityGreen,
     hasSplits: data.hasSplits,
     hasVersions: data.hasVersions,
     hasExperiments: data.hasExperiments,
@@ -108,6 +121,8 @@ export function determineWorkflowState(data: {
     hasEvaluations: data.hasEvaluations,
     hasKagglePublication: data.hasKagglePublication,
     hasNotebook: data.hasNotebook,
+    annotationComplete: data.annotatedImages > 0 && data.annotatedImages === data.images,
+    blockers: [],
   };
 }
 
