@@ -5,13 +5,17 @@ const net = require("net");
 const fs = require("fs");
 
 // ============================================================
-// VisionBharat — Electron Main Process
+// VisionBharat — Electron Main Process (Self-Contained)
 // ============================================================
+
+const { PostgresManager } = require("./postgres");
+const { initializeSchema, insertDemoData } = require("./init-db");
 
 let mainWindow = null;
 let nextServerProcess = null;
 let serverPort = 3000;
-const SERVER_STARTUP_TIMEOUT = 60000; // 60 seconds
+let postgresManager = null;
+const SERVER_STARTUP_TIMEOUT = 60000;
 const HEALTH_CHECK_INTERVAL = 1000;
 
 // ============================================================
@@ -24,6 +28,8 @@ const DATASETS_DIR = path.join(USER_DATA_PATH, "datasets");
 const UPLOADS_DIR = path.join(USER_DATA_PATH, "uploads");
 const CHECKPOINTS_DIR = path.join(USER_DATA_PATH, "checkpoints");
 const REPORTS_DIR = path.join(USER_DATA_PATH, "reports");
+const EXPORTS_DIR = path.join(USER_DATA_PATH, "exports");
+const BACKUPS_DIR = path.join(USER_DATA_PATH, "backups");
 
 function ensureDir(dir) {
   if (!fs.existsSync(dir)) {
@@ -82,10 +88,60 @@ async function findAvailablePort(startPort) {
 }
 
 // ============================================================
+// PostgreSQL Lifecycle
+// ============================================================
+async function startPostgres() {
+  log("INFO", "Starting embedded PostgreSQL...");
+
+  postgresManager = new PostgresManager(USER_DATA_PATH, log);
+  await postgresManager.start();
+
+  // Wait for PostgreSQL to be ready
+  let ready = false;
+  let attempts = 0;
+  const maxAttempts = 30;
+  while (!ready && attempts < maxAttempts) {
+    ready = await postgresManager.isReady();
+    if (!ready) {
+      await new Promise((r) => setTimeout(r, 1000));
+      attempts++;
+    }
+  }
+
+  if (!ready) {
+    throw new Error("PostgreSQL failed to become ready within 30 seconds");
+  }
+
+  log("INFO", "PostgreSQL is ready");
+
+  // Ensure database exists
+  await postgresManager.ensureDatabase();
+
+  // Initialize schema
+  log("INFO", "Initializing database schema...");
+  const client = await postgresManager.getClient();
+  try {
+    await initializeSchema(client, log);
+    await insertDemoData(client, log);
+  } finally {
+    await client.end();
+  }
+
+  log("INFO", `Database connection string: ${postgresManager.getConnectionString()}`);
+  return postgresManager;
+}
+
+async function stopPostgres() {
+  if (postgresManager) {
+    await postgresManager.stop();
+    postgresManager = null;
+  }
+}
+
+// ============================================================
 // Find Next.js standalone server
 // ============================================================
 function findNextServerSource() {
-  // Returns the path to server.js inside the asar (readable via Electron's patched fs)
   const candidates = [];
 
   if (app.isPackaged) {
@@ -195,6 +251,11 @@ async function startNextServer() {
 
   log("INFO", `Server path: ${serverPath}`);
 
+  // Get the database connection string from embedded PostgreSQL
+  const dbConnectionString = postgresManager
+    ? postgresManager.getConnectionString()
+    : process.env.DATABASE_URL || "postgresql://postgres:password@127.0.0.1:5432/visionbharat1";
+
   // Use Electron as Node.js runtime for the standalone server
   const env = {
     ...process.env,
@@ -203,7 +264,7 @@ async function startNextServer() {
     PORT: String(serverPort),
     HOSTNAME: "127.0.0.1",
     VISIONBHARAT_DATA_DIR: USER_DATA_PATH,
-    DATABASE_URL: process.env.DATABASE_URL || "postgresql://postgres:password@127.0.0.1:5432/visionbharat1",
+    DATABASE_URL: dbConnectionString,
   };
 
   // Ensure runtime directories exist
@@ -211,6 +272,7 @@ async function startNextServer() {
   ensureDir(DATASETS_DIR);
   ensureDir(CHECKPOINTS_DIR);
   ensureDir(REPORTS_DIR);
+  ensureDir(EXPORTS_DIR);
 
   // Set the working directory to the standalone server's directory
   const serverDir = path.dirname(serverPath);
@@ -353,6 +415,7 @@ ipcMain.handle("app:info", () => ({
   platform: process.platform,
   arch: process.arch,
   userDataPath: USER_DATA_PATH,
+  postgresPort: postgresManager ? postgresManager.dbPort : null,
 }));
 
 ipcMain.handle("app:open-folder", async (_event, folder) => {
@@ -361,10 +424,58 @@ ipcMain.handle("app:open-folder", async (_event, folder) => {
 });
 
 // ============================================================
+// IPC: Backup/Restore
+// ============================================================
+ipcMain.handle("app:backup", async () => {
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: "Backup VisionBharat Database",
+    defaultPath: path.join(BACKUPS_DIR, `visionbharat-backup-${Date.now()}.sql`),
+    filters: [{ name: "SQL Dumps", extensions: ["sql"] }],
+  });
+
+  if (result.canceled || !result.filePath) {
+    return { success: false, message: "Backup cancelled" };
+  }
+
+  try {
+    ensureDir(BACKUPS_DIR);
+    await postgresManager.backup(result.filePath);
+    return { success: true, path: result.filePath };
+  } catch (err) {
+    return { success: false, message: err.message };
+  }
+});
+
+ipcMain.handle("app:restore", async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: "Restore VisionBharat Database",
+    filters: [{ name: "SQL Dumps", extensions: ["sql"] }],
+    properties: ["openFile"],
+  });
+
+  if (result.canceled || !result.filePaths.length) {
+    return { success: false, message: "Restore cancelled" };
+  }
+
+  try {
+    await postgresManager.restore(result.filePaths[0]);
+    // Restart Next.js server to pick up restored data
+    if (nextServerProcess) {
+      nextServerProcess.kill("SIGTERM");
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    await startNextServer();
+    return { success: true };
+  } catch (err) {
+    return { success: false, message: err.message };
+  }
+});
+
+// ============================================================
 // App Lifecycle
 // ============================================================
 app.whenReady().then(async () => {
-  log("INFO", "=== VisionBharat Electron Starting ===");
+  log("INFO", "=== VisionBharat Electron Starting (Self-Contained) ===");
   log("INFO", `Platform: ${process.platform} ${process.arch}`);
   log("INFO", `Electron: ${process.versions.electron}`);
   log("INFO", `User data: ${USER_DATA_PATH}`);
@@ -375,16 +486,24 @@ app.whenReady().then(async () => {
   ensureDir(DATASETS_DIR);
   ensureDir(CHECKPOINTS_DIR);
   ensureDir(REPORTS_DIR);
+  ensureDir(EXPORTS_DIR);
+  ensureDir(BACKUPS_DIR);
 
   try {
+    // Step 1: Start embedded PostgreSQL
+    await startPostgres();
+
+    // Step 2: Start Next.js server
     await startNextServer();
     log("INFO", "Server started successfully");
+
+    // Step 3: Create browser window
     createWindow();
   } catch (err) {
-    log("ERROR", `Failed to start server: ${err.message}`);
+    log("ERROR", `Failed to start: ${err.message}`);
     dialog.showErrorBox(
       "Startup Error",
-      `Failed to start the VisionBharat server.\n\n${err.message}\n\nPlease ensure PostgreSQL is running and try again.`
+      `Failed to start VisionBharat.\n\n${err.message}\n\nPlease check the logs for details.`
     );
     app.quit();
   }
@@ -395,7 +514,7 @@ app.on("window-all-closed", () => {
   app.quit();
 });
 
-app.on("before-quit", () => {
+app.on("before-quit", async () => {
   log("INFO", "Application quitting...");
 
   // Kill the Next.js server process
@@ -404,19 +523,21 @@ app.on("before-quit", () => {
     try {
       nextServerProcess.kill("SIGTERM");
       // Give it a moment to shut down gracefully
-      setTimeout(() => {
-        if (nextServerProcess) {
-          try {
-            nextServerProcess.kill("SIGKILL");
-          } catch {
-            // process already dead
-          }
+      await new Promise((r) => setTimeout(r, 3000));
+      if (nextServerProcess) {
+        try {
+          nextServerProcess.kill("SIGKILL");
+        } catch {
+          // process already dead
         }
-      }, 3000);
+      }
     } catch (err) {
       log("WARN", `Error killing server: ${err.message}`);
     }
   }
+
+  // Stop embedded PostgreSQL
+  await stopPostgres();
 
   log("INFO", "=== VisionBharat Electron Stopped ===");
 });

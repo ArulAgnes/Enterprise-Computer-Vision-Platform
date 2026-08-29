@@ -2,18 +2,33 @@
 
 ## VisionBharat — DataGenesis 2026
 
-This document describes how to build and run VisionBharat as a Windows desktop application using Electron.
+This document describes how to build and run VisionBharat as a self-contained Windows desktop application using Electron with embedded PostgreSQL.
 
 ---
 
-## Prerequisites
+## Quick Start (No Prerequisites!)
+
+**End users do NOT need Node.js, Python, PostgreSQL, or any development tools.**
+
+Simply run the installer:
+```
+release\VisionBharat-Setup-1.0.0.exe
+```
+
+The app will:
+1. Install to your chosen directory
+2. On first launch, initialize an embedded PostgreSQL database
+3. Start the Next.js server automatically
+4. Open the VisionBharat application
+
+---
+
+## For Developers
+
+### Prerequisites
 
 - **Node.js** 18+ (LTS recommended)
-- **PostgreSQL** 14+ running on localhost:5432
 - **Windows 10+** (x64)
-- **Python 3.11+** (for AI training features)
-
-## Quick Start
 
 ### Development
 
@@ -33,11 +48,6 @@ npm run electron:dev
 ```powershell
 # Build Next.js + Package as Windows EXE
 npm run electron:dist
-
-# Or step by step:
-npm run build                           # Build Next.js standalone
-node electron/prepare-standalone.js     # Prepare static assets
-npx electron-builder --win              # Package as Windows installer
 ```
 
 The installer will be created at:
@@ -49,18 +59,37 @@ release\VisionBharat-Setup-1.0.0.exe
 
 ## Architecture
 
+### Self-Contained Design
+
+The packaged application is fully self-contained. No external services are required.
+
 ```
 Electron Main Process (electron/main.js)
     |
-    +-- Starts Next.js standalone server as child process
-    |   (uses ELECTRON_RUN_AS_NODE=1 to leverage Electron's Node.js)
+    +-- Step 1: Initialize Embedded PostgreSQL
+    |   (electron/postgres.js)
+    |   - Downloads PostgreSQL binaries on first run (~50MB)
+    |   - Creates database in %APPDATA%\VisionBharat\pgdata\
+    |   - Initializes schema with all 17 tables
     |
-    +-- Waits for HTTP health check on localhost:PORT
+    +-- Step 2: Start Next.js standalone server
+    |   - Uses ELECTRON_RUN_AS_NODE=1
+    |   - Connects to embedded PostgreSQL on port 5433
     |
-    +-- Creates BrowserWindow pointing to http://127.0.0.1:PORT
+    +-- Step 3: Create BrowserWindow
+    |   - Points to http://127.0.0.1:PORT
     |
-    +-- On quit: kills the server process gracefully
+    +-- On quit: stops Next.js server, then PostgreSQL
 ```
+
+### Embedded PostgreSQL
+
+- **Engine**: PostgreSQL 18 via `embedded-postgres` npm package
+- **Port**: 5433 (avoids conflict with system PostgreSQL on 5432)
+- **Database**: `visionbharat`
+- **Data directory**: `%APPDATA%\VisionBharat\pgdata\`
+- **First run**: Downloads PostgreSQL binaries from EDB (~50MB)
+- **Subsequent runs**: Uses cached binaries
 
 ### Security
 
@@ -75,29 +104,41 @@ Electron Main Process (electron/main.js)
 In the packaged application, mutable data is stored in:
 ```
 %APPDATA%\VisionBharat\
-├── logs\           # Application logs
-├── uploads\        # Uploaded images
-├── datasets\       # Dataset files
-├── checkpoints\    # Model checkpoints
-├── reports\        # Generated reports
-└── standalone\     # Extracted Next.js server
+├── pgdata\           # PostgreSQL data directory
+├── logs\             # Application logs
+├── uploads\          # Uploaded images
+├── datasets\         # Dataset files
+├── checkpoints\      # Model checkpoints
+├── reports\          # Generated reports
+├── exports\          # Exported files
+├── backups\          # Database backups
+└── standalone\       # Extracted Next.js server
 ```
 
-### Database
+---
 
-Requires PostgreSQL running on localhost:5432. The connection string is:
-```
-DATABASE_URL="postgresql://postgres:password@127.0.0.1:5432/visionbharat1"
+## Backup & Restore
+
+The application provides database backup/restore through the Electron API:
+
+```javascript
+// Backup
+await window.electronAPI.backupDatabase();
+
+// Restore
+await window.electronAPI.restoreDatabase();
 ```
 
-Set via environment variable or edit the DATABASE_URL in `electron/main.js`.
+Backups are stored as SQL dump files in `%APPDATA%\VisionBharat\backups\`.
 
 ---
 
 ## Build Configuration
 
 - **electron-builder.yml** — Packaging configuration
-- **electron/main.js** — Electron main process
+- **electron/main.js** — Electron main process (PostgreSQL + Next.js lifecycle)
+- **electron/postgres.js** — Embedded PostgreSQL manager
+- **electron/init-db.js** — Database schema initialization
 - **electron/preload.js** — Secure preload bridge
 - **electron/prepare-standalone.js** — Static asset preparation
 
@@ -108,11 +149,20 @@ Set via environment variable or edit the DATABASE_URL in `electron/main.js`.
 ### "Server Not Found"
 Ensure `npm run build` was run before `electron-builder`. The standalone server must exist at `.next/standalone/server.js`.
 
-### "Database not connected"
-Ensure PostgreSQL is running and accessible at localhost:5432.
+### "PostgreSQL failed to become ready"
+- Check `%APPDATA%\VisionBharat\logs\electron.log` for details
+- Ensure port 5433 is not in use by another application
+- The first launch may take 1-2 minutes to download PostgreSQL binaries
 
-### Large EXE size (~360MB)
-This is expected. The EXE includes Electron runtime (~150MB), Next.js standalone, and Node.js modules.
+### First launch is slow
+The first launch downloads PostgreSQL binaries (~50MB) from EDB. Subsequent launches use the cached binaries and start in seconds.
 
-### Slow first launch
-The first launch extracts the standalone server from the ASAR archive to `%APPDATA%\VisionBharat\standalone\`. Subsequent launches reuse the cached version.
+### EXE size (~170MB)
+This includes:
+- Electron runtime (~150MB)
+- Next.js standalone server
+- Embedded PostgreSQL binaries (~100MB unpacked)
+- Node.js modules (pg, embedded-postgres, etc.)
+
+### Conflicts with existing PostgreSQL
+The embedded PostgreSQL runs on port 5433 (not 5432), so it won't conflict with a system PostgreSQL installation.
