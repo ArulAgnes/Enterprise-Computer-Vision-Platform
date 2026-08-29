@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, CheckCircle2, AlertTriangle } from "lucide-react";
+import { ArrowRight, CheckCircle2, AlertTriangle, Lock } from "lucide-react";
 import { WORKFLOW_STEPS, type WorkflowStep } from "./WorkflowStepper";
 
 interface NextStepCardProps {
@@ -36,16 +36,11 @@ export function NextStepCard({ currentStep, completedSteps, customMessage, total
     );
   }
 
+  const isAnnotating = currentStep === 4;
+  const annotationComplete = totalImages !== undefined && annotatedImages !== undefined && annotatedImages >= totalImages;
   const nextStep = WORKFLOW_STEPS.find(s => s.number === currentStep + 1);
   const nextStepDone = nextStep ? completedSteps.includes(nextStep.number) : false;
-
-  const isAnnotating = currentStep === 4;
-  const annotationProgress = totalImages && annotatedImages !== undefined
-    ? `${annotatedImages} / ${totalImages} images annotated`
-    : undefined;
-  const remainingAnnotate = unannotatedImages !== undefined && unannotatedImages > 0
-    ? `${unannotatedImages} remaining`
-    : undefined;
+  const nextStepLocked = isAnnotating && !annotationComplete;
 
   return (
     <div className="glass-card p-4 border-blue-500/30 bg-blue-500/5">
@@ -55,21 +50,32 @@ export function NextStepCard({ currentStep, completedSteps, customMessage, total
             <current.icon className="w-5 h-5 text-blue-400" />
           </div>
           <div>
-            <p className="text-[10px] text-[#64748b] uppercase tracking-wider font-semibold">Current Step</p>
-            <h3 className="text-sm font-bold">
-              Step {current.number}: {current.label}
-            </h3>
-            {isAnnotating && annotationProgress ? (
-              <div className="flex items-center gap-2 mt-1">
-                <p className="text-xs text-[#94a3b8]">{annotationProgress}</p>
-                {remainingAnnotate && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                    {remainingAnnotate}
-                  </span>
-                )}
-              </div>
+            {isAnnotating && !annotationComplete ? (
+              <>
+                <p className="text-[10px] text-[#64748b] uppercase tracking-wider font-semibold">Current Step</p>
+                <h3 className="text-sm font-bold">Continue Annotating</h3>
+                <div className="flex items-center gap-2 mt-1">
+                  {totalImages !== undefined && annotatedImages !== undefined && unannotatedImages !== undefined && (
+                    <>
+                      <p className="text-xs text-[#94a3b8]">{annotatedImages} / {totalImages} images annotated</p>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                        {unannotatedImages} remaining
+                      </span>
+                    </>
+                  )}
+                </div>
+                <p className="text-[10px] text-[#64748b] mt-1">
+                  Complete annotation for all {totalImages ?? "???"} images to continue to Quality.
+                </p>
+              </>
             ) : (
-              <p className="text-xs text-[#94a3b8]">{customMessage || current.description}</p>
+              <>
+                <p className="text-[10px] text-[#64748b] uppercase tracking-wider font-semibold">Current Step</p>
+                <h3 className="text-sm font-bold">
+                  Step {current.number}: {current.label}
+                </h3>
+                <p className="text-xs text-[#94a3b8]">{customMessage || current.description}</p>
+              </>
             )}
             {blockers && blockers.length > 0 && (
               <div className="flex items-center gap-1 mt-1">
@@ -80,14 +86,21 @@ export function NextStepCard({ currentStep, completedSteps, customMessage, total
           </div>
         </div>
         {nextStep && (
-          <Link
-            href={nextStep.href}
-            className="btn-primary text-xs flex items-center gap-1 whitespace-nowrap"
-          >
-            Next: {nextStep.shortLabel}
-            {nextStepDone && <CheckCircle2 className="w-3 h-3 text-emerald-400" />}
-            {!nextStepDone && <ArrowRight className="w-3 h-3" />}
-          </Link>
+          nextStepLocked ? (
+            <div className="flex items-center gap-1 text-xs text-[#64748b] whitespace-nowrap opacity-50">
+              <Lock className="w-3 h-3" />
+              <span>{nextStep.shortLabel} (locked)</span>
+            </div>
+          ) : (
+            <Link
+              href={nextStep.href}
+              className="btn-primary text-xs flex items-center gap-1 whitespace-nowrap"
+            >
+              Next: {nextStep.shortLabel}
+              {nextStepDone && <CheckCircle2 className="w-3 h-3 text-emerald-400" />}
+              {!nextStepDone && <ArrowRight className="w-3 h-3" />}
+            </Link>
+          )
         )}
       </div>
     </div>
