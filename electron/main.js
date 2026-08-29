@@ -514,32 +514,49 @@ app.on("window-all-closed", () => {
   app.quit();
 });
 
-app.on("before-quit", async () => {
+let isQuitting = false;
+
+app.on("before-quit", (event) => {
+  if (isQuitting) return;
+  isQuitting = true;
+  event.preventDefault();
   log("INFO", "Application quitting...");
 
-  // Kill the Next.js server process
-  if (nextServerProcess) {
-    log("INFO", "Stopping Next.js server...");
-    try {
-      nextServerProcess.kill("SIGTERM");
-      // Give it a moment to shut down gracefully
-      await new Promise((r) => setTimeout(r, 3000));
-      if (nextServerProcess) {
-        try {
-          nextServerProcess.kill("SIGKILL");
-        } catch {
-          // process already dead
+  async function shutdown() {
+    // Kill the Next.js server process
+    if (nextServerProcess) {
+      log("INFO", "Stopping Next.js server...");
+      try {
+        nextServerProcess.kill("SIGTERM");
+        await new Promise((r) => setTimeout(r, 3000));
+        if (nextServerProcess) {
+          try {
+            nextServerProcess.kill("SIGKILL");
+          } catch {
+            // process already dead
+          }
         }
+      } catch (err) {
+        log("WARN", `Error killing server: ${err.message}`);
       }
-    } catch (err) {
-      log("WARN", `Error killing server: ${err.message}`);
     }
+
+    // Stop embedded PostgreSQL
+    await stopPostgres();
+
+    log("INFO", "=== VisionBharat Electron Stopped ===");
+
+    // Allow async-exit-hook to run its cleanup, then exit
+    // Do NOT call app.exit() here — let Node's natural exit fire async-exit-hook
+    setTimeout(() => {
+      process.exit(0);
+    }, 500);
   }
 
-  // Stop embedded PostgreSQL
-  await stopPostgres();
-
-  log("INFO", "=== VisionBharat Electron Stopped ===");
+  shutdown().catch((err) => {
+    log("ERROR", `Shutdown error: ${err.message}`);
+    process.exit(1);
+  });
 });
 
 app.on("activate", () => {

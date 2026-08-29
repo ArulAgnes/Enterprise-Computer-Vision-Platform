@@ -52,4 +52,39 @@ for (const dir of runtimeDirs) {
   }
 }
 
+// Remove sensitive files that should NOT be packaged in the installer
+const sensitiveFiles = [
+  ".env",
+  "drizzle.config.json",
+  ".env.local",
+  ".env.development",
+  ".env.production",
+  "docker-compose.yml",
+  "Dockerfile",
+  "eslint.config.mjs",
+  "postcss.config.mjs",
+  "tsconfig.json",
+  "tsconfig.tsbuildinfo",
+  "package-lock.json",
+  "_check.js",
+];
+
+for (const file of sensitiveFiles) {
+  const filePath = path.join(STANDALONE_DIR, file);
+  if (fs.existsSync(filePath)) {
+    fs.unlinkSync(filePath);
+    console.log(`Removed sensitive file: ${file}`);
+  }
+}
+
+// Also remove source directories that shouldn't be shipped
+const removableDirs = ["src", "docs", "drizzle", "scripts"];
+for (const dir of removableDirs) {
+  const dirPath = path.join(STANDALONE_DIR, dir);
+  if (fs.existsSync(dirPath)) {
+    fs.rmSync(dirPath, { recursive: true, force: true });
+    console.log(`Removed directory: ${dir}/`);
+  }
+}
+
 console.log("Electron packaging preparation complete.");
