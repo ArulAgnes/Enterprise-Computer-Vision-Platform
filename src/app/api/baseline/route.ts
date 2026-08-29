@@ -7,8 +7,9 @@ import { existsSync, readdirSync, statSync } from "fs";
 import path from "path";
 import { createHash } from "crypto";
 
-const DATASET_SOURCE = path.join(process.cwd(), "datasets", "images", "train");
-const UPLOADS_DIR = path.join(process.cwd(), "uploads");
+import { DATASETS_DIR, UPLOADS_DIR } from "@/lib/paths";
+
+const DATASET_SOURCE = path.join(DATASETS_DIR, "images", "train");
 
 export async function POST(request: NextRequest) {
   try {

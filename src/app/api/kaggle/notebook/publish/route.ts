@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { publishNotebook, checkStatus } from "@/lib/kaggle";
 import path from "path";
 import { existsSync } from "fs";
+import { PROJECT_ROOT } from "@/lib/paths";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +20,7 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: "Kaggle not authenticated." }, { status: 401 });
     }
 
-    const notebookDir = path.join(process.cwd(), "exports", "kaggle", "notebook");
+    const notebookDir = path.join(PROJECT_ROOT, "exports", "kaggle", "notebook");
     if (!existsSync(notebookDir)) {
       return Response.json({ error: "Notebook not generated. Run generate first." }, { status: 404 });
     }

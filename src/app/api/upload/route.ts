@@ -8,7 +8,7 @@ import path from "path";
 import { createHash } from "crypto";
 import { resolveDatasetIdentifier } from "@/lib/dataset";
 
-const UPLOADS_DIR = path.join(process.cwd(), "uploads");
+import { UPLOADS_DIR } from "@/lib/paths";
 const ALLOWED_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
 const ALLOWED_EXT = ["jpg", "jpeg", "png", "webp"];
 const MAX_SIZE = 50 * 1024 * 1024;

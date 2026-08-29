@@ -117,6 +117,7 @@ L_cls = BCEWithLogitsLoss
 | Backend | Next.js API Routes (17 endpoints) |
 | Database | PostgreSQL + Drizzle ORM (16 tables) |
 | AI/ML | Python 3.11, PyTorch 2.13, NumPy, OpenCV, Pillow |
+| Desktop | Electron 35, electron-builder 26 (Windows NSIS installer) |
 
 ---
 
@@ -184,6 +185,16 @@ npx drizzle-kit push
 npm run dev
 ```
 Frontend runs at http://localhost:3000
+
+### 4. Desktop Application (Electron)
+```powershell
+# Build and package as Windows EXE
+npm run electron:dist
+
+# Or development mode
+npm run electron:dev
+```
+See [ELECTRON_WINDOWS_BUILD.md](ELECTRON_WINDOWS_BUILD.md) for details.
 
 ### 4. Python Environment
 ```powershell

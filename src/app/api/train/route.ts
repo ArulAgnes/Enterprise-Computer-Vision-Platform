@@ -7,8 +7,9 @@ import path from "path";
 import fs from "fs";
 import { resolveDatasetIdentifier } from "@/lib/dataset";
 
-const CHECKPOINTS_DIR = path.join(process.cwd(), "checkpoints");
-const AI_DIR = path.join(process.cwd(), "ai");
+import { CHECKPOINTS_DIR, UPLOADS_DIR, DATASETS_DIR, PROJECT_ROOT } from "@/lib/paths";
+
+const AI_DIR = path.join(PROJECT_ROOT, "ai");
 
 export async function POST(request: NextRequest) {
   try {
@@ -59,8 +60,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Check for label files
-    const trainImgDir = path.join(process.cwd(), "uploads", datasetId);
-    const trainLblDir = path.join(process.cwd(), "datasets", "labels", "train");
+    const trainImgDir = path.join(UPLOADS_DIR, datasetId);
+    const trainLblDir = path.join(DATASETS_DIR, "labels", "train");
 
     let hasLabels = false;
     if (fs.existsSync(trainLblDir)) {
@@ -115,7 +116,7 @@ export async function POST(request: NextRequest) {
       const trainScript = path.join(AI_DIR, "train.py");
       const cmd = [
         "python", trainScript,
-        "--dataset_root", path.join(process.cwd(), "datasets").replace(/\\/g, "/"),
+        "--dataset_root", path.join(PROJECT_ROOT, "datasets").replace(/\\/g, "/"),
         "--epochs", String(epochs),
         "--batch_size", String(batchSize),
         "--learning_rate", String(learningRate),

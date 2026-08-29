@@ -5,6 +5,7 @@ import { kagglePublications } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import path from "path";
 import { existsSync } from "fs";
+import { PROJECT_ROOT } from "@/lib/paths";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +25,7 @@ export async function POST(request: NextRequest) {
       }, { status: 401 });
     }
 
-    const exportDir = path.join(process.cwd(), "exports", "kaggle", slug);
+    const exportDir = path.join(PROJECT_ROOT, "exports", "kaggle", slug);
     if (!existsSync(exportDir)) {
       return Response.json({ error: "Export package not found. Run export first." }, { status: 404 });
     }

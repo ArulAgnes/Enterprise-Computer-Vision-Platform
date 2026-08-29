@@ -14,6 +14,12 @@ build/
 .turbo/
 .vercel/
 
+# ------------------------------------------------------------
+# Electron
+# ------------------------------------------------------------
+release/
+electron-builder.yml
+
 # Next.js cache
 .next/cache/
 

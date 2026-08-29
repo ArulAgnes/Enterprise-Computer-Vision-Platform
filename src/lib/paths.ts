@@ -1,6 +1,9 @@
 import path from "path";
 
-export const PROJECT_ROOT = process.cwd();
+// In Electron, VISIONBHARAT_DATA_DIR points to the writable userData directory.
+// In development / Docker, falls back to process.cwd().
+export const PROJECT_ROOT = process.env.VISIONBHARAT_DATA_DIR || process.cwd();
+export const IS_ELECTRON = !!process.env.VISIONBHARAT_DATA_DIR;
 
 export const UPLOADS_DIR = path.join(PROJECT_ROOT, "uploads");
 export const DATASETS_DIR = path.join(PROJECT_ROOT, "datasets");

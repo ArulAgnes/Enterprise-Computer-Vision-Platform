@@ -6,7 +6,7 @@ import { readFile } from "fs/promises";
 import path from "path";
 import { resolveDatasetIdentifier } from "@/lib/dataset";
 
-const UPLOADS_DIR = path.join(process.cwd(), "uploads");
+import { UPLOADS_DIR, DATASETS_DIR } from "@/lib/paths";
 
 export async function POST(request: NextRequest) {
   try {
@@ -169,7 +169,7 @@ async function resolveImagePath(img: { filepath?: string | null; datasetId?: str
   }
 
   // Try datasets/images/train/{filename}
-  const trainPath = path.join(process.cwd(), "datasets", "images", "train", img.filename);
+  const trainPath = path.join(DATASETS_DIR, "images", "train", img.filename);
   try {
     const { accessSync } = await import("fs");
     accessSync(trainPath);

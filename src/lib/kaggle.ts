@@ -5,7 +5,9 @@ import {
   readdirSync, statSync, copyFileSync,
 } from "fs";
 
-const EXPORTS_DIR = path.join(process.cwd(), "exports", "kaggle");
+import { PROJECT_ROOT } from "./paths";
+
+const EXPORTS_DIR = path.join(PROJECT_ROOT, "exports", "kaggle");
 
 // ============================================================
 // Types

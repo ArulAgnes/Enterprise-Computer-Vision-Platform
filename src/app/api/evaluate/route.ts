@@ -57,11 +57,12 @@ export async function POST(request: NextRequest) {
     try {
       const { execSync } = require("child_process");
       const path = require("path");
+      const { PROJECT_ROOT } = require("@/lib/paths");
 
-      const evalScript = path.join(process.cwd(), "ai", "evaluate.py");
+      const evalScript = path.join(PROJECT_ROOT, "ai", "evaluate.py");
       const cmd = `python -c "
 import sys
-sys.path.insert(0, '${process.cwd().replace(/\\/g, "/")}/ai')
+sys.path.insert(0, '${PROJECT_ROOT.replace(/\\/g, "/")}/ai')
 from evaluate import Evaluator
 import numpy as np
 
@@ -72,7 +73,7 @@ print('EVAL_COMPLETE')
 "`;
 
       const output = execSync(cmd, {
-        cwd: process.cwd(),
+        cwd: PROJECT_ROOT,
         timeout: 120000,
         encoding: "utf-8",
         stdio: ["pipe", "pipe", "pipe"],

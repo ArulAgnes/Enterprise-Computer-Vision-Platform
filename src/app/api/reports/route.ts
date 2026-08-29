@@ -7,7 +7,7 @@ import { existsSync } from "fs";
 import path from "path";
 import { resolveDatasetIdentifier } from "@/lib/dataset";
 
-const REPORTS_DIR = path.join(process.cwd(), "reports");
+import { REPORTS_DIR } from "@/lib/paths";
 
 export async function POST(request: NextRequest) {
   try {

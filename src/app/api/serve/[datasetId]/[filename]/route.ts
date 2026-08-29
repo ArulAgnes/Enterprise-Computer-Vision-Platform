@@ -4,7 +4,7 @@ import { existsSync, accessSync } from "fs";
 import path from "path";
 import { resolveDatasetIdentifier } from "@/lib/dataset";
 
-const UPLOADS_DIR = path.join(/* turbopackIgnore: true */ process.cwd(), "uploads");
+import { UPLOADS_DIR, DATASETS_DIR } from "@/lib/paths";
 
 export async function GET(
   request: NextRequest,
@@ -26,7 +26,7 @@ export async function GET(
     // Try multiple file locations
     const possiblePaths = [
       path.join(UPLOADS_DIR, dsId, safeFilename),
-      path.join(/* turbopackIgnore: true */ process.cwd(), "datasets", "images", "train", safeFilename),
+      path.join(DATASETS_DIR, "images", "train", safeFilename),
     ];
 
     // Also try the raw datasetId in case it's already a UUID

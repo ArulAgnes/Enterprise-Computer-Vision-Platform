@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { execSync } from "child_process";
 import path from "path";
 import fs from "fs";
+import { UPLOADS_DIR, PROJECT_ROOT } from "@/lib/paths";
 
 export async function POST(request: NextRequest) {
   try {
@@ -36,7 +37,7 @@ export async function POST(request: NextRequest) {
       const img = await db.select().from(images).where(eq(images.id, imageId)).limit(1);
       if (img.length > 0) {
         imageData = img[0];
-        targetImagePath = img[0].filepath || path.join(process.cwd(), "uploads", img[0].datasetId || "", img[0].filename);
+        targetImagePath = img[0].filepath || path.join(UPLOADS_DIR, img[0].datasetId || "", img[0].filename);
       }
     }
 
@@ -49,7 +50,7 @@ export async function POST(request: NextRequest) {
     let inferSuccess = false;
 
     try {
-      const inferScript = path.join(process.cwd(), "ai", "infer.py");
+      const inferScript = path.join(PROJECT_ROOT, "ai", "infer.py");
       const checkpointPath = model[0].checkpointPath;
 
       const cmd = [
@@ -61,7 +62,7 @@ export async function POST(request: NextRequest) {
       ].join(" ");
 
       const output = execSync(cmd, {
-        cwd: path.join(process.cwd(), "ai"),
+        cwd: path.join(PROJECT_ROOT, "ai"),
         timeout: 120000,
         encoding: "utf-8",
         stdio: ["pipe", "pipe", "pipe"],

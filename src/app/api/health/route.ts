@@ -2,6 +2,7 @@ import { db } from "@/db";
 import { sql } from "drizzle-orm";
 import { existsSync, accessSync, writeFileSync, unlinkSync } from "fs";
 import path from "path";
+import { UPLOADS_DIR, PROJECT_ROOT } from "@/lib/paths";
 import { execSync } from "child_process";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +25,7 @@ export async function GET() {
   let storageStatus = "error";
   let storageDetail = "";
   try {
-    const testFile = path.join(process.cwd(), "uploads", ".health_check");
+    const testFile = path.join(PROJECT_ROOT, "uploads", ".health_check");
     const dir = path.dirname(testFile);
     if (!existsSync(dir)) {
       storageDetail = "Uploads directory missing";
@@ -73,7 +74,7 @@ export async function GET() {
   let trainingStatus = "unavailable";
   let trainingDetail = "ai/train.py not found";
   try {
-    const trainPath = path.join(process.cwd(), "ai", "train.py");
+    const trainPath = path.join(PROJECT_ROOT, "ai", "train.py");
     if (existsSync(trainPath)) {
       trainingStatus = "available";
       trainingDetail = "ai/train.py present";
