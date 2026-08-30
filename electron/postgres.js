@@ -22,7 +22,8 @@ class PostgresManager {
 
   /**
    * Initialize embedded PostgreSQL.
-   * Downloads binaries on first run if not cached.
+   * Binaries are pre-bundled in @embedded-postgres/windows-x64 package.
+   * No runtime download required.
    */
   async init() {
     this.log("POSTGRES", "Initializing embedded PostgreSQL...");
@@ -44,8 +45,6 @@ class PostgresManager {
         port: this.dbPort,
         listen: "127.0.0.1",
         shell: false,
-        // Use specific version for reproducibility
-        version: "16.4.0",
       });
 
       this.log("POSTGRES", `Data directory: ${this.pgDataDir}`);
@@ -72,7 +71,6 @@ class PostgresManager {
     }
 
     this.log("POSTGRES", "Starting embedded PostgreSQL server...");
-    this.log("POSTGRES", "First launch may take 1-2 minutes to download PostgreSQL binaries.");
 
     try {
       await this.embeddedPg.initialise();

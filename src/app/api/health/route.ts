@@ -2,7 +2,7 @@ import { db } from "@/db";
 import { sql } from "drizzle-orm";
 import { existsSync, accessSync, writeFileSync, unlinkSync } from "fs";
 import path from "path";
-import { UPLOADS_DIR, PROJECT_ROOT } from "@/lib/paths";
+import { UPLOADS_DIR, AI_DIR, PYTHON_EXECUTABLE, PYTHON_DIR } from "@/lib/paths";
 import { execSync } from "child_process";
 
 export const dynamic = "force-dynamic";
@@ -25,7 +25,7 @@ export async function GET() {
   let storageStatus = "error";
   let storageDetail = "";
   try {
-    const testFile = path.join(PROJECT_ROOT, "uploads", ".health_check");
+    const testFile = path.join(UPLOADS_DIR, ".health_check");
     const dir = path.dirname(testFile);
     if (!existsSync(dir)) {
       storageDetail = "Uploads directory missing";
@@ -39,21 +39,24 @@ export async function GET() {
     storageDetail = e instanceof Error ? e.message : "Storage check failed";
   }
 
-  // Python check
+  // Python check — use bundled Python if available, fall back to system
   let pythonStatus = "error";
   let pythonDetail = "";
+  const isBundledPython = existsSync(PYTHON_EXECUTABLE);
   try {
-    const pythonCmd = process.platform === "win32" ? "python" : "python3";
+    const pythonCmd = isBundledPython ? `"${PYTHON_EXECUTABLE}"` : (process.platform === "win32" ? "python" : "python3");
     const version = execSync(`${pythonCmd} --version 2>&1`, { timeout: 5000, encoding: "utf-8" }).trim();
     pythonStatus = "ok";
-    pythonDetail = version;
+    pythonDetail = isBundledPython ? `${version} (bundled)` : version;
   } catch {
     try {
       const version = execSync("py --version 2>&1", { timeout: 5000, encoding: "utf-8" }).trim();
       pythonStatus = "ok";
       pythonDetail = version;
     } catch (e) {
-      pythonDetail = e instanceof Error ? e.message : "Python not found";
+      pythonDetail = isBundledPython
+        ? "Bundled Python found but not working"
+        : "Python not found";
     }
   }
 
@@ -61,7 +64,8 @@ export async function GET() {
   let gpuStatus = "unavailable";
   let gpuDetail = "CPU training mode";
   try {
-    const result = execSync("python -c \"import torch; print(torch.cuda.is_available())\" 2>&1", { timeout: 10000, encoding: "utf-8" }).trim();
+    const pythonCmd = isBundledPython ? `"${PYTHON_EXECUTABLE}"` : "python";
+    const result = execSync(`${pythonCmd} -c "import torch; print(torch.cuda.is_available())" 2>&1`, { timeout: 10000, encoding: "utf-8" }).trim();
     if (result === "True") {
       gpuStatus = "available";
       gpuDetail = "CUDA GPU available";
@@ -74,10 +78,10 @@ export async function GET() {
   let trainingStatus = "unavailable";
   let trainingDetail = "ai/train.py not found";
   try {
-    const trainPath = path.join(PROJECT_ROOT, "ai", "train.py");
+    const trainPath = path.join(AI_DIR, "train.py");
     if (existsSync(trainPath)) {
       trainingStatus = "available";
-      trainingDetail = "ai/train.py present";
+      trainingDetail = "ai/train.py ready";
     }
   } catch {
     // not available

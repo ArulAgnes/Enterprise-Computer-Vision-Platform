@@ -1,0 +1,72 @@
+appId: com.visionbharat.datagenesis2026
+productName: VisionBharat
+copyright: Copyright © 2026 Arul Maria Agnes — Ramco Institute of Technology
+artifactName: VisionBharat-Setup-${version}.${ext}
+
+directories:
+  output: release
+  buildResources: electron/build-resources
+
+files:
+  - ".next/standalone/**/*"
+  - "!.next/standalone/release/**"
+  - "!.next/standalone/datasets/**"
+  - "!.next/standalone/checkpoints/**"
+  - "!.next/standalone/uploads/**"
+  - "!.next/standalone/reports/**"
+  - "!.next/standalone/exports/**"
+  - "!.next/standalone/logs/**"
+  - "!.next/standalone/.env*"
+  - "!.next/standalone/drizzle.config.json"
+  - "!.next/standalone/src/**"
+  - "!.next/standalone/docs/**"
+  - "!.next/standalone/drizzle/**"
+  - "!.next/standalone/scripts/**"
+  - ".next/static/**/*"
+  - "electron/main.js"
+  - "electron/preload.js"
+  - "electron/postgres.js"
+  - "electron/init-db.js"
+  - "package.json"
+  - "node_modules/embedded-postgres/**/*"
+  - "node_modules/@embedded-postgres/**/*"
+  - "node_modules/pg/**/*"
+  - "node_modules/pg-hstore/**/*"
+  - "node_modules/pgpass/**/*"
+  - "ai/**/*"
+  - "!ai/__pycache__/**"
+  - "!ai/.venv/**"
+  - "!ai/*.pyc"
+
+extraResources:
+  - from: "python-embed"
+    to: "python-embed"
+    filter:
+      - "**/*"
+  - from: "ai/requirements.txt"
+    to: "ai/requirements.txt"
+
+asar: true
+asarUnpack:
+  - "**/*.node"
+  - "ai/**"
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: VisionBharat-Setup-${version}.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: VisionBharat
+
+publish:
+  provider: github
+  owner: ArulAgnes
+  repo: Enterprise-Computer-Vision-Platform

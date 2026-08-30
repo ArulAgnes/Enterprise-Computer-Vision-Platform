@@ -7,9 +7,7 @@ import path from "path";
 import fs from "fs";
 import { resolveDatasetIdentifier } from "@/lib/dataset";
 
-import { CHECKPOINTS_DIR, UPLOADS_DIR, DATASETS_DIR, PROJECT_ROOT } from "@/lib/paths";
-
-const AI_DIR = path.join(PROJECT_ROOT, "ai");
+import { CHECKPOINTS_DIR, UPLOADS_DIR, DATASETS_DIR, AI_DIR, PYTHON_EXECUTABLE } from "@/lib/paths";
 
 export async function POST(request: NextRequest) {
   try {
@@ -115,15 +113,15 @@ export async function POST(request: NextRequest) {
     try {
       const trainScript = path.join(AI_DIR, "train.py");
       const cmd = [
-        "python", trainScript,
-        "--dataset_root", path.join(PROJECT_ROOT, "datasets").replace(/\\/g, "/"),
+        `"${PYTHON_EXECUTABLE}"`, `"${trainScript}"`,
+        "--dataset_root", `"${DATASETS_DIR.replace(/\\/g, "/")}"`,
         "--epochs", String(epochs),
         "--batch_size", String(batchSize),
         "--learning_rate", String(learningRate),
         "--optimizer", optimizer,
         "--image_size", String(imageSize),
         "--seed", String(seed),
-        "--checkpoint_dir", CHECKPOINTS_DIR,
+        "--checkpoint_dir", `"${CHECKPOINTS_DIR}"`,
         "--num_classes", "1",
         "--class_names", "person",
       ].join(" ");

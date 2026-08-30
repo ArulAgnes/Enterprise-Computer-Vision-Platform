@@ -57,12 +57,13 @@ export async function POST(request: NextRequest) {
     try {
       const { execSync } = require("child_process");
       const path = require("path");
-      const { PROJECT_ROOT } = require("@/lib/paths");
+      const { AI_DIR, PYTHON_EXECUTABLE, APP_DIR } = require("@/lib/paths");
 
-      const evalScript = path.join(PROJECT_ROOT, "ai", "evaluate.py");
-      const cmd = `python -c "
+      const evalScript = path.join(AI_DIR, "evaluate.py");
+      const aiDirNormalized = AI_DIR.replace(/\\/g, "/");
+      const cmd = `"${PYTHON_EXECUTABLE}" -c "
 import sys
-sys.path.insert(0, '${PROJECT_ROOT.replace(/\\/g, "/")}/ai')
+sys.path.insert(0, '${aiDirNormalized}')
 from evaluate import Evaluator
 import numpy as np
 
@@ -73,7 +74,7 @@ print('EVAL_COMPLETE')
 "`;
 
       const output = execSync(cmd, {
-        cwd: PROJECT_ROOT,
+        cwd: AI_DIR,
         timeout: 120000,
         encoding: "utf-8",
         stdio: ["pipe", "pipe", "pipe"],

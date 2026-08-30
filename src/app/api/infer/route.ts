@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { execSync } from "child_process";
 import path from "path";
 import fs from "fs";
-import { UPLOADS_DIR, PROJECT_ROOT } from "@/lib/paths";
+import { UPLOADS_DIR, AI_DIR, PYTHON_EXECUTABLE } from "@/lib/paths";
 
 export async function POST(request: NextRequest) {
   try {
@@ -50,19 +50,19 @@ export async function POST(request: NextRequest) {
     let inferSuccess = false;
 
     try {
-      const inferScript = path.join(PROJECT_ROOT, "ai", "infer.py");
+      const inferScript = path.join(AI_DIR, "infer.py");
       const checkpointPath = model[0].checkpointPath;
 
       const cmd = [
-        "python", inferScript,
-        "--image", targetImagePath.replace(/\\/g, "/"),
-        "--checkpoint", checkpointPath.replace(/\\/g, "/"),
+        `"${PYTHON_EXECUTABLE}"`, `"${inferScript}"`,
+        "--image", `"${targetImagePath.replace(/\\/g, "/")}"`,
+        "--checkpoint", `"${checkpointPath.replace(/\\/g, "/")}"`,
         "--num_classes", "1",
         "--confidence", String(confidenceThreshold),
       ].join(" ");
 
       const output = execSync(cmd, {
-        cwd: path.join(PROJECT_ROOT, "ai"),
+        cwd: AI_DIR,
         timeout: 120000,
         encoding: "utf-8",
         stdio: ["pipe", "pipe", "pipe"],

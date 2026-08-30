@@ -23,6 +23,25 @@ const HEALTH_CHECK_INTERVAL = 1000;
 // ============================================================
 const APP_NAME = "VisionBharat";
 const USER_DATA_PATH = app.getPath("userData");
+
+// In packaged mode, app.getAppPath() returns the asar path.
+// The Python scripts and ai/ directory live alongside the app (outside asar).
+function getAppInstallDir() {
+  if (app.isPackaged) {
+    // resources/ is the parent of the asar
+    return path.dirname(process.resourcesPath);
+  }
+  return path.join(__dirname, "..");
+}
+
+const APP_INSTALL_DIR = getAppInstallDir();
+const PYTHON_DIR = app.isPackaged
+  ? path.join(process.resourcesPath, "python-embed")
+  : path.join(__dirname, "..", "python-embed");
+const AI_DIR = app.isPackaged
+  ? path.join(APP_INSTALL_DIR, "app.asar.unpacked", "ai")
+  : path.join(__dirname, "..", "ai");
+
 const LOGS_DIR = path.join(USER_DATA_PATH, "logs");
 const DATASETS_DIR = path.join(USER_DATA_PATH, "datasets");
 const UPLOADS_DIR = path.join(USER_DATA_PATH, "uploads");
@@ -264,6 +283,9 @@ async function startNextServer() {
     PORT: String(serverPort),
     HOSTNAME: "127.0.0.1",
     VISIONBHARAT_DATA_DIR: USER_DATA_PATH,
+    VISIONBHARAT_APP_DIR: APP_INSTALL_DIR,
+    VISIONBHARAT_PYTHON_DIR: PYTHON_DIR,
+    VISIONBHARAT_AI_DIR: AI_DIR,
     DATABASE_URL: dbConnectionString,
   };
 

@@ -2,106 +2,82 @@
 
 ## VisionBharat — DataGenesis 2026
 
-This document describes how to build and run VisionBharat as a self-contained Windows desktop application using Electron with embedded PostgreSQL.
+---
+
+## Installation (End Users)
+
+1. Download `VisionBharat-Setup-1.0.0.exe`
+2. Run installer
+3. Launch VisionBharat from Start Menu or Desktop
+4. Use application
+
+**No developer tools required. No internet required after download.**
 
 ---
 
-## Quick Start (No Prerequisites!)
+## What's Bundled
 
-**End users do NOT need Node.js, Python, PostgreSQL, or any development tools.**
+| Component | Details | Size |
+|---|---|---|
+| Electron | 35.7.5 (Chromium + Node.js) | ~243 MB |
+| Next.js | 16.2.6 standalone server | ~1 GB (asar) |
+| PostgreSQL | 17.0 via embedded-postgres | ~104 MB |
+| Python | 3.11.9 embeddable | ~10 MB |
+| PyTorch | 2.13.0+cpu | ~494 MB |
+| OpenCV | 5.0.0 headless | ~44 MB |
+| NumPy | 2.4.6 | ~13 MB |
+| scikit-learn | 1.9.0 | ~8 MB |
+| AI Scripts | train.py, evaluate.py, infer.py, model.py | ~20 KB |
 
-Simply run the installer:
-```
-release\VisionBharat-Setup-1.0.0.exe
-```
-
-The app will:
-1. Install to your chosen directory
-2. On first launch, initialize an embedded PostgreSQL database
-3. Start the Next.js server automatically
-4. Open the VisionBharat application
-
----
-
-## For Developers
-
-### Prerequisites
-
-- **Node.js** 18+ (LTS recommended)
-- **Windows 10+** (x64)
-
-### Development
-
-```powershell
-# Install dependencies
-npm install
-
-# Start Next.js dev server
-npm run dev
-
-# In another terminal, start Electron (connects to dev server)
-npm run electron:dev
-```
-
-### Production Build
-
-```powershell
-# Build Next.js + Package as Windows EXE
-npm run electron:dist
-```
-
-The installer will be created at:
-```
-release\VisionBharat-Setup-1.0.0.exe
-```
+**Installer size:** 581 MB  
+**Installed size:** ~2.6 GB
 
 ---
 
 ## Architecture
 
-### Self-Contained Design
-
-The packaged application is fully self-contained. No external services are required.
-
 ```
-Electron Main Process (electron/main.js)
-    |
-    +-- Step 1: Initialize Embedded PostgreSQL
-    |   (electron/postgres.js)
-    |   - Downloads PostgreSQL binaries on first run (~50MB)
-    |   - Creates database in %APPDATA%\VisionBharat\pgdata\
-    |   - Initializes schema with all 17 tables
-    |
-    +-- Step 2: Start Next.js standalone server
-    |   - Uses ELECTRON_RUN_AS_NODE=1
-    |   - Connects to embedded PostgreSQL on port 5433
-    |
-    +-- Step 3: Create BrowserWindow
-    |   - Points to http://127.0.0.1:PORT
-    |
-    +-- On quit: stops Next.js server, then PostgreSQL
+VisionBharat-Setup-1.0.0.exe
+  ↓ Install
+  ↓
+VisionBharat.exe (Electron main process)
+  |
+  +-- Start embedded PostgreSQL (port 5433)
+  |   - Binaries: resources/app.asar.unpacked/node_modules/@embedded-postgres/
+  |   - Data: %APPDATA%\VisionBharat\pgdata\
+  |   - No runtime download — all binaries pre-bundled
+  |
+  +-- Start Next.js standalone server
+  |   - Uses ELECTRON_RUN_AS_NODE=1
+  |   - Connects to PostgreSQL on port 5433
+  |
+  +-- Start BrowserWindow
+  |   - Loads http://127.0.0.1:PORT
+  |
+  +-- Python AI operations use bundled runtime
+      - Path: resources/python-embed/python.exe
+      - Packages: PyTorch, OpenCV, NumPy, etc.
+      - No system Python required
 ```
 
-### Embedded PostgreSQL
+---
 
-- **Engine**: PostgreSQL 18 via `embedded-postgres` npm package
-- **Port**: 5433 (avoids conflict with system PostgreSQL on 5432)
-- **Database**: `visionbharat`
-- **Data directory**: `%APPDATA%\VisionBharat\pgdata\`
-- **First run**: Downloads PostgreSQL binaries from EDB (~50MB)
-- **Subsequent runs**: Uses cached binaries
-
-### Security
+## Security
 
 - `contextIsolation: true` — Renderer cannot access Node.js APIs
 - `nodeIntegration: false` — No Node.js in browser context
 - Preload script provides limited, safe API via `contextBridge`
 - Navigation restricted to localhost only
 - External links open in system browser
+- No credentials packaged (.env excluded)
+- PostgreSQL listens only on 127.0.0.1:5433
 
-### Data Storage
+---
 
-In the packaged application, mutable data is stored in:
+## Data Storage
+
+All mutable data stored in `%APPDATA%\VisionBharat\`:
+
 ```
 %APPDATA%\VisionBharat\
 ├── pgdata\           # PostgreSQL data directory
@@ -117,52 +93,65 @@ In the packaged application, mutable data is stored in:
 
 ---
 
-## Backup & Restore
+## Environment Variables (Set by Electron Main Process)
 
-The application provides database backup/restore through the Electron API:
-
-```javascript
-// Backup
-await window.electronAPI.backupDatabase();
-
-// Restore
-await window.electronAPI.restoreDatabase();
-```
-
-Backups are stored as SQL dump files in `%APPDATA%\VisionBharat\backups\`.
+| Variable | Purpose |
+|---|---|
+| `VISIONBHARAT_DATA_DIR` | Writable userData directory |
+| `VISIONBHARAT_APP_DIR` | App installation directory |
+| `VISIONBHARAT_PYTHON_DIR` | Bundled Python directory |
+| `VISIONBHARAT_AI_DIR` | AI scripts directory |
+| `DATABASE_URL` | PostgreSQL connection string |
 
 ---
 
-## Build Configuration
+## Build Instructions (Developers)
 
-- **electron-builder.yml** — Packaging configuration
-- **electron/main.js** — Electron main process (PostgreSQL + Next.js lifecycle)
-- **electron/postgres.js** — Embedded PostgreSQL manager
-- **electron/init-db.js** — Database schema initialization
-- **electron/preload.js** — Secure preload bridge
-- **electron/prepare-standalone.js** — Static asset preparation
+### Prerequisites
+- Node.js 18+
+- Windows 10+ x64
+
+### Build Commands
+```powershell
+# Full build with Python runtime
+npm run electron:full
+
+# Build without Python bundling
+npm run electron:dist
+
+# Setup Python runtime only
+npm run setup:python
+```
+
+### Build Artifacts
+- `release/VisionBharat-Setup-1.0.0.exe` — NSIS installer
+- `release/win-unpacked/` — Unpacked application
 
 ---
 
 ## Troubleshooting
 
 ### "Server Not Found"
-Ensure `npm run build` was run before `electron-builder`. The standalone server must exist at `.next/standalone/server.js`.
+Run `npm run build` before `electron-builder`. The standalone server must exist at `.next/standalone/server.js`.
 
 ### "PostgreSQL failed to become ready"
-- Check `%APPDATA%\VisionBharat\logs\electron.log` for details
-- Ensure port 5433 is not in use by another application
-- The first launch may take 1-2 minutes to download PostgreSQL binaries
+- Check `%APPDATA%\VisionBharat\logs\electron.log`
+- Ensure port 5433 is not in use
+- First launch initializes pgdata (no download needed)
 
-### First launch is slow
-The first launch downloads PostgreSQL binaries (~50MB) from EDB. Subsequent launches use the cached binaries and start in seconds.
+### "Python not found" or training fails
+- Run `npm run setup:python` to set up the Python runtime
+- Ensure `python-embed/` directory exists before building
+- Bundled Python is at `resources/python-embed/python.exe`
 
-### EXE size (~170MB)
-This includes:
-- Electron runtime (~150MB)
-- Next.js standalone server
-- Embedded PostgreSQL binaries (~100MB unpacked)
-- Node.js modules (pg, embedded-postgres, etc.)
+---
 
-### Conflicts with existing PostgreSQL
-The embedded PostgreSQL runs on port 5433 (not 5432), so it won't conflict with a system PostgreSQL installation.
+## Build Configuration Files
+
+- `electron-builder.yml` — Packaging configuration
+- `electron/main.js` — Electron main process
+- `electron/postgres.js` — Embedded PostgreSQL manager
+- `electron/init-db.js` — Database schema initialization
+- `electron/preload.js` — Secure preload bridge
+- `electron/prepare-standalone.js` — Build preparation
+- `scripts/setup-python-runtime.js` — Python runtime setup

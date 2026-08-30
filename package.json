@@ -12,8 +12,10 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "electron:dev": "concurrently \"next dev\" \"wait-on http://localhost:3000 && electron .\"",
+    "setup:python": "node scripts/setup-python-runtime.js",
     "electron:build": "npm run build && node electron/prepare-standalone.js && electron-builder --win",
-    "electron:dist": "npm run build && node electron/prepare-standalone.js && electron-builder --win --publish never"
+    "electron:dist": "npm run build && node electron/prepare-standalone.js && electron-builder --win --publish never",
+    "electron:full": "node scripts/setup-python-runtime.js && npm run build && node electron/prepare-standalone.js && electron-builder --win --publish never"
   },
   "dependencies": {
     "dotenv": "17.3.1",

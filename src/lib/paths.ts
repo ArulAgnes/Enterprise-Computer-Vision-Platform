@@ -5,6 +5,22 @@ import path from "path";
 export const PROJECT_ROOT = process.env.VISIONBHARAT_DATA_DIR || process.cwd();
 export const IS_ELECTRON = !!process.env.VISIONBHARAT_DATA_DIR;
 
+// App installation directory (where ai/ and python-embed/ live)
+// In Electron packaged mode, this is the asar parent directory.
+// In development, this is the project root.
+export const APP_DIR = process.env.VISIONBHARAT_APP_DIR || PROJECT_ROOT;
+
+// Bundled Python executable path
+export const PYTHON_DIR = process.env.VISIONBHARAT_PYTHON_DIR || "";
+export const PYTHON_EXECUTABLE = PYTHON_DIR
+  ? path.join(PYTHON_DIR, "python.exe")
+  : process.platform === "win32"
+    ? "python"
+    : "python3";
+
+// AI scripts directory
+export const AI_DIR = process.env.VISIONBHARAT_AI_DIR || path.join(APP_DIR, "ai");
+
 export const UPLOADS_DIR = path.join(PROJECT_ROOT, "uploads");
 export const DATASETS_DIR = path.join(PROJECT_ROOT, "datasets");
 export const CHECKPOINTS_DIR = path.join(PROJECT_ROOT, "checkpoints");
