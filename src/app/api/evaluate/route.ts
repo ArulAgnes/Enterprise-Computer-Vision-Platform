@@ -1,151 +1,116 @@
+/**
+ * POST /api/evaluate — real evaluation (no zero-metric stubs)
+ * ===========================================================
+ * Body: { modelId?, datasetVersionId?, modelPath?, confidence?, iou? }
+ *
+ * Runs `ai/evaluate.py` over the held-out test split and returns genuine
+ * precision / recall / F1 / mAP@0.5 / mAP@0.5:0.95 / mean IoU / per-class AP /
+ * confusion matrix / error breakdown, persisting everything to the
+ * `evaluations` table (and to ai/checkpoints/evaluation_results.json).
+ */
 import { NextRequest } from "next/server";
+import fs from "fs";
+
 import { db } from "@/db";
-import { evaluations, models, datasets, images, annotations } from "@/db/schema";
-import { eq, sql } from "drizzle-orm";
-import { resolveDatasetIdentifier } from "@/lib/dataset";
+import { evaluations, models } from "@/db/schema";
+import { desc, eq } from "drizzle-orm";
+import { BEST_PT, VISIONBHARAT_V2_BEST } from "@/lib/paths";
+import { modelArtifacts, readJson, resolveVersion, runEvaluation } from "@/lib/ai-pipeline";
+import { CHECKPOINTS_DIR } from "@/lib/paths";
+import path from "path";
+
+export const dynamic = "force-dynamic";
+export const maxDuration = 1800;
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { modelId, datasetId: datasetIdRaw, iouThreshold = 0.5, confidenceThreshold = 0.5 } = body;
+    const body = await request.json().catch(() => ({}));
+    const { datasetVersionId, modelId, modelPath, confidence, iou } = body;
 
-    if (!modelId) {
-      return Response.json({ error: "modelId required" }, { status: 400 });
+    const { datasetId } = await resolveVersion(datasetVersionId ?? body.datasetId ?? null);
+
+    // Resolve which checkpoint to score.
+    let checkpoint = modelPath as string | undefined;
+    let modelRowId: string | null = null;
+    if (!checkpoint && modelId) {
+      const rows = await db.select().from(models).where(eq(models.id, modelId)).limit(1);
+      checkpoint = rows[0]?.checkpointPath || undefined;
+      modelRowId = rows[0]?.id ?? null;
+    }
+    if (!checkpoint) {
+      const rows = await db.select().from(models).where(eq(models.datasetId, datasetId)).orderBy(desc(models.createdAt)).limit(1);
+      checkpoint = rows[0]?.checkpointPath || (fs.existsSync(BEST_PT) ? BEST_PT : VISIONBHARAT_V2_BEST);
+      modelRowId = rows[0]?.id ?? null;
     }
 
-    const model = await db.select().from(models).where(eq(models.id, modelId)).limit(1);
-    if (model.length === 0) {
-      return Response.json({ error: "Model not found" }, { status: 404 });
-    }
+    const evaluation = await runEvaluation({
+      datasetVersionId: datasetId,
+      modelPath: checkpoint,
+      confidence: Number(confidence ?? 0.25),
+      iou: Number(iou ?? 0.5),
+    });
 
-    let targetDatasetId = model[0].datasetId;
-    if (datasetIdRaw) {
-      const ds = await resolveDatasetIdentifier(datasetIdRaw);
-      if (ds) targetDatasetId = ds.id;
-    }
-
-    if (!targetDatasetId) {
-      return Response.json({ error: "datasetId required" }, { status: 400 });
-    }
-
-    const dataset = await db.select().from(datasets).where(eq(datasets.id, targetDatasetId)).limit(1);
-    if (dataset.length === 0) {
-      return Response.json({ error: "Dataset not found" }, { status: 404 });
-    }
-
-    const testImages = await db.execute(sql`
-      SELECT count(*)::int as count FROM images
-      WHERE dataset_id = ${targetDatasetId} AND split_type = 'test'
-    `);
-    const testCount = ((testImages as unknown as { rows: { count: number }[] }).rows?.[0]?.count ?? 0) as number;
-
-    const annotationCount = (await db.select({ count: sql<number>`count(*)::int` }).from(annotations).where(eq(annotations.datasetId, targetDatasetId)))[0]?.count ?? 0;
-
-    const hasCheckpoint = model[0].checkpointPath != null && model[0].checkpointPath !== "";
-
-    if (!hasCheckpoint) {
-      return Response.json({
-        error: "NO CHECKPOINT AVAILABLE",
-        message: "Model has no trained checkpoint. Train the model first.",
-        status: "blocked",
-      }, { status: 400 });
-    }
-
-    let evalResult: Record<string, unknown> = {};
-    let evalSuccess = false;
-
-    try {
-      const { execSync } = require("child_process");
-      const path = require("path");
-      const { AI_DIR, PYTHON_EXECUTABLE, APP_DIR } = require("@/lib/paths");
-
-      const evalScript = path.join(AI_DIR, "evaluate.py");
-      const aiDirNormalized = AI_DIR.replace(/\\/g, "/");
-      const cmd = `"${PYTHON_EXECUTABLE}" -c "
-import sys
-sys.path.insert(0, '${aiDirNormalized}')
-from evaluate import Evaluator
-import numpy as np
-
-evaluator = Evaluator(num_classes=1, iou_threshold=${iouThreshold}, confidence_threshold=${confidenceThreshold})
-metrics = evaluator.compute_metrics()
-print('EVAL_RESULT:' + str(metrics))
-print('EVAL_COMPLETE')
-"`;
-
-      const output = execSync(cmd, {
-        cwd: AI_DIR,
-        timeout: 120000,
-        encoding: "utf-8",
-        stdio: ["pipe", "pipe", "pipe"],
-      });
-
-      evalResult = {
-        precision: 0.0,
-        recall: 0.0,
-        f1: 0.0,
-        meanIou: 0.0,
-        mapScore: 0.0,
-        testImages: testCount,
-        totalAnnotations: annotationCount,
-        note: "Evaluation requires test-set annotations. Metrics will be populated when annotations are available.",
-        output: output.slice(-1000),
-      };
-      evalSuccess = true;
-    } catch (err) {
-      evalResult = {
-        error: err instanceof Error ? err.message : String(err),
-        note: "Evaluation failed. Ensure model checkpoint exists and test annotations are available.",
-      };
-    }
-
-    const [evalRecord] = await db.insert(evaluations).values({
-      modelId,
-      experimentId: model[0].experimentId || null,
-      datasetId: targetDatasetId,
-      evalType: "test_set",
-      iouThreshold,
-      confidenceThreshold,
-      totalImages: testCount,
-      totalGroundTruth: annotationCount,
-      totalDetections: 0,
-      truePositives: 0,
-      falsePositives: 0,
-      falseNegatives: 0,
-      precision: evalResult.precision as number ?? 0,
-      recall: evalResult.recall as number ?? 0,
-      f1: evalResult.f1 as number ?? 0,
-      meanIou: evalResult.meanIou as number ?? 0,
-      mapScore: evalResult.mapScore as number ?? 0,
-      perClassMetrics: null,
-      confusionMatrix: null,
-      errorAnalysis: null,
-      isTestSetUsed: true,
-      isDemo: false,
-    }).returning();
-
-    if (evalSuccess) {
-      await db.update(models).set({
-        precision: evalResult.precision as number,
-        recall: evalResult.recall as number,
-        f1: evalResult.f1 as number,
-        iou: evalResult.meanIou as number,
-        mapScore: evalResult.mapScore as number,
-        updatedAt: new Date(),
-      }).where(eq(models.id, modelId));
+    if (!evaluation.ok) {
+      return Response.json(
+        {
+          error: evaluation.error || "Evaluation failed",
+          hint: "Train the model first (/api/pipeline/run) and make sure dataset/test_split.json exists.",
+          metrics: null,
+          logs: evaluation.logs.slice(-40),
+        },
+        { status: 400 }
+      );
     }
 
     return Response.json({
-      evaluation: {
-        id: evalRecord.id,
-        modelId,
-        datasetId: targetDatasetId,
-        status: evalSuccess ? "completed" : "failed",
+      success: true,
+      status: "completed",
+      modelId: modelRowId,
+      datasetId,
+      checkpoint,
+      metrics: {
+        precision: evaluation.precision,
+        recall: evaluation.recall,
+        f1: evaluation.f1,
+        accuracy: evaluation.accuracy,
+        map50: evaluation.map50,
+        map5095: evaluation.map5095,
+        meanIou: evaluation.meanIou,
+        images: evaluation.images,
+        perClass: evaluation.perClass,
+        confusionMatrix: evaluation.confusionMatrix,
+        errorAnalysis: evaluation.errorAnalysis,
+        latency: evaluation.latencyMs,
       },
-      metrics: evalResult,
-    }, { status: evalSuccess ? 200 : 500 });
+      evaluation: {
+        id: undefined,
+        status: "completed",
+        outputPath: evaluation.outputPath,
+        resultsFile: path.join(CHECKPOINTS_DIR, "evaluation_results.json"),
+      },
+      artifacts: modelArtifacts(),
+      logs: evaluation.logs.slice(-40),
+    });
   } catch (error) {
     console.error("[EVALUATE] Error:", error);
-    return Response.json({ error: "Evaluation failed" }, { status: 500 });
+    return Response.json({ error: error instanceof Error ? error.message : "Evaluation failed" }, { status: 500 });
+  }
+}
+
+/** GET /api/evaluate — latest persisted metrics (used by the dashboard cards). */
+export async function GET() {
+  try {
+    const rows = await db.select().from(evaluations).orderBy(desc(evaluations.createdAt)).limit(1);
+    const latest = rows[0] ?? null;
+    const fileMetrics = readJson(path.join(CHECKPOINTS_DIR, "evaluation_results.json"));
+    return Response.json({
+      latest,
+      fileMetrics,
+      perClass: latest?.perClassMetrics ?? fileMetrics?.per_class ?? null,
+      confusionMatrix: latest?.confusionMatrix ?? null,
+      artifacts: modelArtifacts(),
+    });
+  } catch (error) {
+    return Response.json({ error: error instanceof Error ? error.message : "failed" }, { status: 500 });
   }
 }

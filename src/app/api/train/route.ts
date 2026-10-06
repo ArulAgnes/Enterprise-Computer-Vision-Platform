@@ -1,218 +1,257 @@
+/**
+ * POST /api/train — VisionBharat V2 training (from scratch, dynamic classes)
+ * ==========================================================================
+ * Body: { datasetId?, datasetVersionId?, epochs?, batchSize?, imgSize?,
+ *         learningRate?, stream?, testRun?, split? }
+ *
+ * The class list is ALWAYS resolved dynamically (classes table -> annotation
+ * class names -> defaults). `person` and `num_classes 1` do not exist anywhere
+ * in this codebase any more.
+ *
+ * `stream: true` streams Server-Sent Events with per-epoch metrics so the
+ * training page can render a live terminal + loss curve.
+ */
 import { NextRequest } from "next/server";
-import { db } from "@/db";
-import { experiments, trainingMetrics, models, datasets, images, annotations, classes } from "@/db/schema";
-import { eq, sql } from "drizzle-orm";
-import { execSync } from "child_process";
-import path from "path";
 import fs from "fs";
-import { resolveDatasetIdentifier } from "@/lib/dataset";
+import path from "path";
 
-import { CHECKPOINTS_DIR, UPLOADS_DIR, DATASETS_DIR, AI_DIR, PYTHON_EXECUTABLE } from "@/lib/paths";
+import { db } from "@/db";
+import { experiments, models } from "@/db/schema";
+import { desc, eq } from "drizzle-orm";
+import { CHECKPOINTS_DIR, MODELS_DIR, VISIONBHARAT_V2_BEST, BEST_PT } from "@/lib/paths";
+import {
+  ensureClasses,
+  getOrCreateDataset,
+  modelArtifacts,
+  readJson,
+  resolveVersion,
+  runTraining,
+  type TrainingResult,
+} from "@/lib/ai-pipeline";
+
+export const dynamic = "force-dynamic";
+export const maxDuration = 3600;
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const {
-      datasetId: datasetIdRaw,
-      experimentId,
-      epochs = 5,
-      batchSize = 4,
-      learningRate = 0.001,
-      optimizer = "adam",
-      imageSize = 640,
-      seed = 42,
-    } = body;
+    const body = await request.json().catch(() => ({}));
+    const datasetVersionId: string | null = body.datasetVersionId ?? body.datasetId ?? null;
+    const epochs = Number(body.epochs ?? 200);
+    const batchSize = Number(body.batchSize ?? 8);
+    const imgSize = Number(body.imgSize ?? body.imageSize ?? 640);
+    const learningRate = Number(body.learningRate ?? 1e-3);
+    const testRun = Boolean(body.testRun);
+    const stream = Boolean(body.stream);
 
-    if (!datasetIdRaw) {
-      return Response.json({ error: "datasetId required" }, { status: 400 });
+    const { datasetId } = await resolveVersion(datasetVersionId);
+    const classList = await ensureClasses(datasetId);
+
+    if (stream) {
+      return streamTraining({ datasetId, epochs, batchSize, imgSize, learningRate, testRun });
     }
 
-    const ds = await resolveDatasetIdentifier(datasetIdRaw);
-    if (!ds) {
-      return Response.json({ error: "Dataset not found" }, { status: 404 });
-    }
-
-    const datasetId = ds.id;
-
-    // Verify dataset has images
-    const imageCount = (await db.select({ count: sql<number>`count(*)::int` }).from(images).where(eq(images.datasetId, datasetId)))[0]?.count ?? 0;
-    if (imageCount === 0) {
-      return Response.json({ error: "No images in dataset" }, { status: 400 });
-    }
-
-    // Check annotations
-    const annotatedResult = await db.execute(sql`
-      SELECT count(*)::int as count FROM images
-      WHERE dataset_id = ${datasetId} AND annotation_status = 'annotated'
-    `);
-    const annotatedCount = ((annotatedResult as unknown as { rows: { count: number }[] }).rows?.[0]?.count ?? 0) as number;
-
-    if (annotatedCount === 0) {
-      return Response.json({
-        error: "NO ANNOTATIONS AVAILABLE",
-        message: "Training requires annotated images. Please annotate images first.",
-        status: "blocked",
-        totalImages: imageCount,
-        annotatedImages: 0,
-      }, { status: 400 });
-    }
-
-    // Check for label files
-    const trainImgDir = path.join(UPLOADS_DIR, datasetId);
-    const trainLblDir = path.join(DATASETS_DIR, "labels", "train");
-
-    let hasLabels = false;
-    if (fs.existsSync(trainLblDir)) {
-      const labelFiles = fs.readdirSync(trainLblDir).filter(f => f.endsWith(".txt") && f !== ".gitkeep");
-      hasLabels = labelFiles.length > 0;
-    }
-
-    if (!hasLabels && fs.existsSync(trainImgDir)) {
-      const files = fs.readdirSync(trainImgDir);
-      for (const f of files) {
-        if (f.endsWith(".txt")) {
-          hasLabels = true;
-          break;
-        }
-      }
-    }
-
-    // Create or use provided experiment
-    let exp;
-    if (experimentId) {
-      const existing = await db.select().from(experiments).where(eq(experiments.id, experimentId)).limit(1);
-      exp = existing[0] || null;
-    }
-
-    if (!exp) {
-      const expId = `EXP-${Date.now()}`;
-      const [inserted] = await db.insert(experiments).values({
-        experimentId: expId,
-        name: `Training ${expId}`,
+    const [experiment] = await db
+      .insert(experiments)
+      .values({
+        experimentId: `EXP-V2-${Date.now()}`,
+        name: `VisionBharat V2 training (${classList.length} classes)`,
         datasetId,
-        imageSize,
+        imageSize: imgSize,
         batchSize,
         epochs,
         learningRate,
-        optimizer,
-        weightDecay: 0.0005,
-        randomSeed: seed,
+        optimizer: "adamw",
+        weightDecay: 0.05,
         status: "running",
         isDemo: false,
-      }).returning();
-      exp = inserted;
-    } else {
-      await db.update(experiments).set({ status: "running", updatedAt: new Date() }).where(eq(experiments.id, exp.id));
+        config: { classes: classList, augmentation: ["mosaic", "mixup", "copypaste"], ema: true, scheduler: "cosine_warm_restarts" },
+      })
+      .returning();
+
+    const training = await runTraining({ datasetVersionId: datasetId, epochs, batchSize, imgSize, learningRate, testRun });
+
+    await db
+      .update(experiments)
+      .set({
+        status: training.ok ? "completed" : "failed",
+        currentEpoch: training.epochsRun,
+        bestValScore: training.bestValMap50,
+        trainLoss: training.history.at(-1)?.train_loss ?? null,
+        valLoss: training.history.at(-1)?.val_loss ?? null,
+        precision: training.history.at(-1)?.precision ?? null,
+        recall: training.history.at(-1)?.recall ?? null,
+        trainingDuration: Math.round(training.durationSeconds),
+        hardware: process.env.VISIONBHARAT_HARDWARE || "CPU / CUDA",
+        results: { checkpoints: training.checkpointPaths, history: training.history.slice(-50), report: training.report },
+        updatedAt: new Date(),
+      })
+      .where(eq(experiments.id, experiment.id));
+
+    let modelRow = null;
+    if (training.ok) {
+      const [model] = await db
+        .insert(models)
+        .values({
+          modelId: `MODEL-V2-${Date.now()}`,
+          name: "VisionBharat V2 (CSP+SE / FPN+PAN / Decoupled)",
+          version: "2.0",
+          architecture: "VisionBharatV2 — CSP+SE backbone, FPN+PAN neck, decoupled heads (from scratch)",
+          datasetId,
+          experimentId: experiment.id,
+          parameterCount: training.parameters,
+          imageSize: imgSize,
+          numClasses: classList.length,
+          classNames: classList,
+          status: "trained",
+          precision: training.history.at(-1)?.precision ?? null,
+          recall: training.history.at(-1)?.recall ?? null,
+          mapScore: training.bestValMap50,
+          checkpointPath: BEST_PT,
+          bestCheckpointPath: VISIONBHARAT_V2_BEST,
+          isFromScratch: true,
+          usesPretrained: false,
+          trainingDuration: Math.round(training.durationSeconds),
+          hardware: process.env.VISIONBHARAT_HARDWARE || "CPU",
+          notes: `Classes (dynamic): ${classList.join(", ")}`,
+        })
+        .returning();
+      modelRow = model;
+      await db.update(experiments).set({ modelId: model.id }).where(eq(experiments.id, experiment.id));
     }
 
-    // Run Python training
-    let trainingResult: Record<string, unknown> = {};
-    let trainingSuccess = false;
-    let errorMessage = "";
-
-    try {
-      const trainScript = path.join(AI_DIR, "train.py");
-      const cmd = [
-        `"${PYTHON_EXECUTABLE}"`, `"${trainScript}"`,
-        "--dataset_root", `"${DATASETS_DIR.replace(/\\/g, "/")}"`,
-        "--epochs", String(epochs),
-        "--batch_size", String(batchSize),
-        "--learning_rate", String(learningRate),
-        "--optimizer", optimizer,
-        "--image_size", String(imageSize),
-        "--seed", String(seed),
-        "--checkpoint_dir", `"${CHECKPOINTS_DIR}"`,
-        "--num_classes", "1",
-        "--class_names", "person",
-      ].join(" ");
-
-      const output = execSync(cmd, {
-        cwd: AI_DIR,
-        timeout: 600000,
-        encoding: "utf-8",
-        stdio: ["pipe", "pipe", "pipe"],
-      });
-
-      trainingResult = { output: output.slice(-2000) };
-      trainingSuccess = true;
-
-      const lossMatch = output.match(/Loss:\s*([\d.]+)/);
-      const valMatch = output.match(/Val:\s*([\d.]+)/);
-
-      if (lossMatch) trainingResult.trainLoss = parseFloat(lossMatch[1]);
-      if (valMatch) trainingResult.valLoss = parseFloat(valMatch[1]);
-
-      const checkpointFiles = fs.readdirSync(CHECKPOINTS_DIR).filter(f => f.endsWith(".pt"));
-      if (checkpointFiles.length > 0) {
-        const bestCheckpoint = checkpointFiles.find(f => f.includes("best")) || checkpointFiles[checkpointFiles.length - 1];
-        trainingResult.checkpointPath = path.join(CHECKPOINTS_DIR, bestCheckpoint);
-      }
-    } catch (err) {
-      errorMessage = err instanceof Error ? err.message : String(err);
-      trainingResult = { error: errorMessage.slice(-2000) };
-    }
-
-    // Update experiment with results
-    const updateData: Record<string, unknown> = {
-      status: trainingSuccess ? "completed" : "failed",
-      updatedAt: new Date(),
-      trainingDuration: Math.round((Date.now() - new Date(exp.createdAt ?? Date.now()).getTime()) / 1000),
-    };
-
-    if (trainingResult.trainLoss !== undefined) updateData.trainLoss = trainingResult.trainLoss;
-    if (trainingResult.valLoss !== undefined) updateData.valLoss = trainingResult.valLoss;
-    if (trainingResult.checkpointPath) updateData.results = { checkpointPath: trainingResult.checkpointPath };
-
-    await db.update(experiments).set(updateData).where(eq(experiments.id, exp.id));
-
-    // Register model if training succeeded
-    let modelRecord = null;
-    if (trainingSuccess && trainingResult.checkpointPath) {
-      const [model] = await db.insert(models).values({
-        modelId: `MODEL-${Date.now()}`,
-        name: `${ds.name} Model`,
-        version: "1.0",
-        architecture: "VisionBharatDetector-CustomCNN",
-        datasetId,
-        experimentId: exp.id,
-        parameterCount: 2670000,
-        imageSize,
-        numClasses: 1,
-        classNames: ["person"],
-        status: "trained",
-        isFromScratch: true,
-        usesPretrained: false,
-        checkpointPath: trainingResult.checkpointPath as string,
-        trainingDuration: updateData.trainingDuration as number,
-        hardware: "CPU",
-      }).returning();
-      modelRecord = model;
-
-      await db.update(experiments).set({ modelId: model.id }).where(eq(experiments.id, exp.id));
-    }
-
-    return Response.json({
-      experiment: {
-        id: exp.id,
-        experimentId: exp.experimentId,
-        status: updateData.status,
+    return Response.json(
+      {
+        success: training.ok,
+        experiment: { id: experiment.id, experimentId: experiment.experimentId, status: training.ok ? "completed" : "failed" },
+        model: modelRow ? { id: modelRow.id, modelId: modelRow.modelId, name: modelRow.name, parameters: modelRow.parameterCount } : null,
+        classes: classList,
+        numClasses: classList.length,
+        training: {
+          epochsRun: training.epochsRun,
+          bestValMap50: training.bestValMap50,
+          bestEpoch: training.bestEpoch,
+          parameters: training.parameters,
+          durationSeconds: training.durationSeconds,
+          checkpoints: training.checkpointPaths,
+          history: training.history,
+        },
+        artifacts: modelArtifacts(),
+        error: training.error,
+        logs: training.logs.slice(-40),
       },
-      model: modelRecord ? {
-        id: modelRecord.id,
-        modelId: modelRecord.modelId,
-        name: modelRecord.name,
-      } : null,
-      training: {
-        success: trainingSuccess,
-        epochs,
-        trainLoss: trainingResult.trainLoss,
-        valLoss: trainingResult.valLoss,
-        checkpointPath: trainingResult.checkpointPath,
-        errorMessage: trainingSuccess ? undefined : errorMessage.slice(0, 500),
-      },
-    }, { status: trainingSuccess ? 200 : 500 });
+      { status: training.ok ? 200 : 500 }
+    );
   } catch (error) {
     console.error("[TRAIN] Error:", error);
-    return Response.json({ error: "Training failed" }, { status: 500 });
+    return Response.json({ error: error instanceof Error ? error.message : "Training failed" }, { status: 500 });
+  }
+}
+
+function streamTraining(params: {
+  datasetId: string;
+  epochs: number;
+  batchSize: number;
+  imgSize: number;
+  learningRate: number;
+  testRun: boolean;
+}): Response {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (event: string, data: unknown) =>
+        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+
+      send("start", { ...params, started_at: new Date().toISOString() });
+      try {
+        const result: TrainingResult = await runTraining({
+          datasetVersionId: params.datasetId,
+          epochs: params.epochs,
+          batchSize: params.batchSize,
+          imgSize: params.imgSize,
+          learningRate: params.learningRate,
+          testRun: params.testRun,
+          onLine: (line) => {
+            if (line.startsWith("VBEPOCH:")) {
+              try {
+                send("epoch", JSON.parse(line.slice("VBEPOCH:".length)));
+              } catch {
+                /* ignore */
+              }
+            } else {
+              send("log", { line: line.slice(0, 400) });
+            }
+          },
+        });
+        send("result", {
+          ok: result.ok,
+          epochsRun: result.epochsRun,
+          bestValMap50: result.bestValMap50,
+          bestEpoch: result.bestEpoch,
+          parameters: result.parameters,
+          checkpoints: result.checkpointPaths,
+          history: result.history,
+          artifacts: modelArtifacts(),
+          error: result.error,
+        });
+      } catch (error) {
+        send("error", { error: error instanceof Error ? error.message : "Training failed" });
+      } finally {
+        send("done", { finished_at: new Date().toISOString() });
+        controller.close();
+      }
+    },
+  });
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    },
+  });
+}
+
+/** GET /api/train — training readiness + last report. */
+export async function GET(request: Request) {
+  // `GET /api/train?stream=true&epochs=200&…` — EventSource-compatible training
+  // stream (the browser cannot POST through EventSource).
+  const url = new URL(request.url);
+  if (url.searchParams.get("stream") === "true") {
+    const ds = await getOrCreateDataset();
+    return streamTraining({
+      datasetId: url.searchParams.get("datasetId") ?? ds.id,
+      epochs: Number(url.searchParams.get("epochs") ?? 200),
+      batchSize: Number(url.searchParams.get("batchSize") ?? 8),
+      imgSize: Number(url.searchParams.get("imgSize") ?? 640),
+      learningRate: Number(url.searchParams.get("learningRate") ?? 1e-3),
+      testRun: url.searchParams.get("testRun") === "true",
+    });
+  }
+
+  try {
+    const ds = await getOrCreateDataset();
+    const classList = await ensureClasses(ds.id);
+    const report = readJson(path.join(MODELS_DIR, "report.json"));
+    const lastExperiment = await db.select().from(experiments).orderBy(desc(experiments.createdAt)).limit(1);
+    return Response.json({
+      datasetId: ds.id,
+      classes: classList,
+      numClasses: classList.length,
+      splitAvailable: fs.existsSync(path.join(process.cwd(), "dataset", "split.json")),
+      checkpointDir: CHECKPOINTS_DIR,
+      artifacts: modelArtifacts(),
+      lastReport: report,
+      lastExperiment: lastExperiment[0] ?? null,
+      pipeline: {
+        optimizer: "AdamW (lr 1e-3, weight decay 0.05)",
+        scheduler: "CosineAnnealingWarmRestarts (T_0=10, T_mult=2)",
+        loss: "Focal (alpha=0.25, gamma=2.0) + CIoU",
+        augmentation: "Mosaic + MixUp + CopyPaste + flips",
+        ema: "decay 0.9999",
+        earlyStopping: "patience 30, min epochs 150",
+      },
+    });
+  } catch (error) {
+    return Response.json({ error: error instanceof Error ? error.message : "failed" }, { status: 500 });
   }
 }

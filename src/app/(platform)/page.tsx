@@ -7,7 +7,7 @@ import {
   ArrowRight, Zap, CheckCircle2, ArrowUpRight, Upload, Image as ImageIcon
 } from "lucide-react";
 import { useWorkflowState, type WorkflowState } from "@/lib/useWorkflowState";
-import { WorkflowStepper, WORKFLOW_STEPS, NextStepCard, HelpCard, InfoBar } from "@/components/workflow";
+import { WorkflowStepper, WORKFLOW_STEPS, NextStepCard, HelpCard, InfoBar, PipelineRunner } from "@/components/workflow";
 
 const STEP_ACTIONS: Record<number, { label: string; href: string; icon: React.ElementType }> = {
   1: { label: "Open Camera", href: "/capture", icon: Camera },
@@ -56,7 +56,7 @@ function StatCard({ icon: Icon, label, value, color }: { icon: React.ElementType
 }
 
 export default function DashboardPage() {
-  const { state: workflow, loading } = useWorkflowState();
+  const { state: workflow, loading, refetch } = useWorkflowState();
 
   if (loading) {
     return (
@@ -97,6 +97,9 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* INVENTION · one-click autonomous pipeline */}
+      <PipelineRunner onFinished={refetch} />
 
       {/* Workflow Stepper */}
       <WorkflowStepper currentStep={workflow.currentStep} completedSteps={workflow.completedSteps} />
