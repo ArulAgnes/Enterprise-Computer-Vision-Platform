@@ -1,127 +1,127 @@
+/**
+ * POST /api/infer — INVENTION 2: universal inference (upload / paste / webcam)
+ * ============================================================================
+ * Accepts EITHER:
+ *   • multipart/form-data with `file` (or `files`) — drag & drop, camera capture
+ *   • application/json { base64: "data:image/jpeg;base64,...", source: "paste"|"webcam" }
+ *   • application/json { imageId } — a dataset image already stored in the DB
+ *
+ * Runs `ai/infer.py` (VisionBharat V2, dynamic class list) and answers with the
+ * detections plus a servable URL of the OpenCV-annotated frame:
+ *   { predictions:[{class,confidence,bbox}], annotated_image_url, time_ms }
+ */
 import { NextRequest } from "next/server";
+
 import { db } from "@/db";
-import { inferenceRuns, models, images } from "@/db/schema";
+import { images } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { execSync } from "child_process";
-import path from "path";
-import fs from "fs";
-import { UPLOADS_DIR, AI_DIR, PYTHON_EXECUTABLE } from "@/lib/paths";
+import { extensionFor, runInference, writeTempImage } from "@/lib/inference";
+
+export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 export async function POST(request: NextRequest) {
+  const contentType = request.headers.get("content-type") || "";
+  let tempPath: string | null = null;
+
   try {
-    const body = await request.json();
-    const { modelId, imageId, imagePath, confidenceThreshold = 0.3 } = body;
+    let imagePath: string | null = null;
+    let base64: string | null = null;
+    let source = "upload";
+    let confidence = 0.25;
+    let modelPath: string | null = null;
 
-    if (!modelId) {
-      return Response.json({ error: "modelId required" }, { status: 400 });
-    }
+    if (contentType.includes("multipart/form-data")) {
+      const form = await request.formData();
+      const file = (form.get("file") || form.get("files") || form.get("image")) as File | null;
+      source = String(form.get("source") || "upload");
+      confidence = Number(form.get("confidence") ?? form.get("confidenceThreshold") ?? 0.25);
+      modelPath = (form.get("modelPath") as string) || null;
 
-    const model = await db.select().from(models).where(eq(models.id, modelId)).limit(1);
-    if (model.length === 0) {
-      return Response.json({ error: "Model not found" }, { status: 404 });
-    }
+      if (!file) {
+        return Response.json({ error: "No file provided (field name: file)" }, { status: 400 });
+      }
+      const buffer = Buffer.from(await file.arrayBuffer());
+      tempPath = writeTempImage(buffer, extensionFor(file.type));
+      imagePath = tempPath;
+    } else {
+      const body = await request.json().catch(() => ({}));
+      base64 = body.base64 ?? body.image ?? null;
+      source = String(body.source || (base64 ? "paste" : "upload"));
+      confidence = Number(body.confidence ?? body.confidenceThreshold ?? 0.25);
+      modelPath = body.modelPath ?? null;
 
-    if (!model[0].checkpointPath) {
-      return Response.json({
-        error: "NO TRAINED CHECKPOINT",
-        message: "Model has no trained checkpoint. Train the model first.",
-        status: "blocked",
-      }, { status: 400 });
-    }
-
-    // Determine image path
-    let targetImagePath = imagePath;
-    let imageData = null;
-
-    if (imageId && !targetImagePath) {
-      const img = await db.select().from(images).where(eq(images.id, imageId)).limit(1);
-      if (img.length > 0) {
-        imageData = img[0];
-        targetImagePath = img[0].filepath || path.join(UPLOADS_DIR, img[0].datasetId || "", img[0].filename);
+      if (body.imageId) {
+        const rows = await db.select().from(images).where(eq(images.id, body.imageId)).limit(1);
+        if (rows.length > 0 && rows[0].filepath) {
+          imagePath = rows[0].filepath;
+          base64 = null;
+        }
+      }
+      if (!imagePath && !base64) {
+        return Response.json({ error: "Provide `file` (multipart), `base64`, or `imageId`" }, { status: 400 });
       }
     }
 
-    if (!targetImagePath || !fs.existsSync(targetImagePath)) {
-      return Response.json({ error: "Image not found" }, { status: 404 });
+    const result = await runInference({ imagePath, base64, confidence, modelPath });
+
+    if (!result.ok) {
+      return Response.json(
+        {
+          error: result.error || "Inference failed",
+          predictions: [],
+          checkpointHint: "Train a model first: POST /api/pipeline/run",
+          logs: result.logs.slice(-20),
+        },
+        { status: 400 }
+      );
     }
-
-    // Run Python inference
-    let inferenceResult: Record<string, unknown> = {};
-    let inferSuccess = false;
-
-    try {
-      const inferScript = path.join(AI_DIR, "infer.py");
-      const checkpointPath = model[0].checkpointPath;
-
-      const cmd = [
-        `"${PYTHON_EXECUTABLE}"`, `"${inferScript}"`,
-        "--image", `"${targetImagePath.replace(/\\/g, "/")}"`,
-        "--checkpoint", `"${checkpointPath.replace(/\\/g, "/")}"`,
-        "--num_classes", "1",
-        "--confidence", String(confidenceThreshold),
-      ].join(" ");
-
-      const output = execSync(cmd, {
-        cwd: AI_DIR,
-        timeout: 120000,
-        encoding: "utf-8",
-        stdio: ["pipe", "pipe", "pipe"],
-      });
-
-      // Parse JSON output from infer.py
-      const jsonMatch = output.match(/\{[\s\S]*"detections"[\s\S]*\}/);
-      if (jsonMatch) {
-        inferenceResult = JSON.parse(jsonMatch[0]);
-      } else {
-        inferenceResult = {
-          detections: [],
-          numDetections: 0,
-          inferenceTimeMs: 0,
-          note: "Inference completed but no structured output parsed",
-          rawOutput: output.slice(-1000),
-        };
-      }
-      inferSuccess = true;
-    } catch (err) {
-      inferenceResult = {
-        detections: [],
-        numDetections: 0,
-        inferenceTimeMs: 0,
-        error: err instanceof Error ? err.message : String(err),
-      };
-    }
-
-    // Save inference run
-    const [run] = await db.insert(inferenceRuns).values({
-      modelId,
-      imageId: imageId || null,
-      detections: inferenceResult.detections ?? [],
-      numDetections: (inferenceResult.numDetections as number) ?? 0,
-      inferenceTimeMs: (inferenceResult.inferenceTimeMs as number) ?? 0,
-      imageWidth: imageData?.width ?? (inferenceResult.imageWidth as number) ?? null,
-      imageHeight: imageData?.height ?? (inferenceResult.imageHeight as number) ?? null,
-      modelVersion: model[0].version || "1.0",
-      isDemo: false,
-    }).returning();
 
     return Response.json({
-      inference: {
-        id: run.id,
-        detections: inferenceResult.detections ?? [],
-        numDetections: (inferenceResult.numDetections as number) ?? 0,
-        inferenceTimeMs: (inferenceResult.inferenceTimeMs as number) ?? 0,
-        imageWidth: (inferenceResult.imageWidth as number) ?? imageData?.width ?? null,
-        imageHeight: (inferenceResult.imageHeight as number) ?? imageData?.height ?? null,
-      },
+      success: true,
+      source,
+      predictions: result.predictions,
+      detections: result.predictions,
+      numDetections: result.predictions.length,
+      annotated_image_url: result.annotatedImageUrl,
+      annotated_image_path: result.annotatedImagePath,
+      time_ms: result.timeMs,
+      inferenceTimeMs: result.timeMs,
+      image_width: result.imageWidth,
+      image_height: result.imageHeight,
+      classes: result.classes,
+      model_path: result.modelPath,
       model: {
-        id: model[0].id,
-        name: model[0].name,
-        checkpointPath: model[0].checkpointPath,
+        name: "VisionBharat V2",
+        parameters: 5_583_441,
+        from_scratch: true,
+        pretrained_used: false,
       },
-      success: inferSuccess,
-    }, { status: 200 });
+      invention: "Paste-to-Predict (Ctrl+V anywhere) + Live OpenCV stream",
+    });
   } catch (error) {
     console.error("[INFER] Error:", error);
-    return Response.json({ error: "Inference failed" }, { status: 500 });
+    return Response.json({ error: error instanceof Error ? error.message : "Inference failed" }, { status: 500 });
+  } finally {
+    if (tempPath) {
+      // Keep the frame for a few minutes so the annotated image survives; the OS
+      // temp cleanup handles the rest. (Deleting immediately would race the read.)
+      setTimeout(() => {
+        import("fs").then((fs) => fs.promises.unlink(tempPath!).catch(() => undefined));
+      }, 10 * 60 * 1000);
+    }
   }
+}
+
+/** GET /api/infer — inference readiness + rolling stats. */
+export async function GET() {
+  const { latestInferenceStats, resolveCheckpoint } = await import("@/lib/inference");
+  const { modelArtifacts } = await import("@/lib/ai-pipeline");
+  const checkpoint = await resolveCheckpoint(null);
+  return Response.json({
+    ready: !!checkpoint,
+    checkpoint,
+    stats: await latestInferenceStats(),
+    artifacts: modelArtifacts(),
+  });
 }

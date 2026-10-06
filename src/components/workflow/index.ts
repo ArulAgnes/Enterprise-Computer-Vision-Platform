@@ -2,3 +2,5 @@ export { WorkflowStepper, WORKFLOW_STEPS, determineWorkflowState, getCurrentStep
 export type { WorkflowStep, WorkflowState } from "./WorkflowStepper";
 export { NextStepCard, StepActionCard } from "./NextStepCard";
 export { HelpCard, EmptyState, InfoBar, PageHeader } from "./HelpCard";
+export { default as SyntheticExpansionDialog } from "./SyntheticExpansionDialog";
+export { default as PipelineRunner } from "./PipelineRunner";

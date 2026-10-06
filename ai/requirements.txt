@@ -1,0 +1,37 @@
+# ============================================================================
+# VisionBharat V2 — Python requirements  (DataGenesis 2026)
+# ============================================================================
+# Every dependency the AI engine needs, pinned for reproducibility.
+#
+#   python -m venv .venv
+#   .venv/bin/python -m pip install -r ai/requirements.txt
+#
+# COMPLIANCE NOTE — what is deliberately NOT here:
+#   * no `ultralytics` / `yolov5` / `detectron2`  -> model + trainer are ours
+#   * no `timm`, no `transformers`, no `clip`     -> zero pretrained backbones
+#   * torchvision is present for IO/utilities only; `torchvision.models` is
+#     never imported (ai/model.py::verify_no_pretrained() enforces this).
+# ============================================================================
+
+# ---- Deep learning core ----
+torch==2.2.2
+torchvision==0.17.2
+
+# ---- Numerics ----
+numpy==1.26.4
+
+# ---- Computer vision ----
+# NOTE: the headless build is required on servers/containers without libGL.
+opencv-python-headless==4.9.0.80
+Pillow==10.2.0
+
+# ---- Synthetic expansion engine (Invention 1) ----
+albumentations==1.3.1
+
+# ---- Leakage-free stratified split (Invention 3) ----
+scikit-learn==1.4.0
+
+# ---- Progress / config / reporting ----
+tqdm==4.66.2
+PyYAML==6.0.1
+matplotlib==3.8.2

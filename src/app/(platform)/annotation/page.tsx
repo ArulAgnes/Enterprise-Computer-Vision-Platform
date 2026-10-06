@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
-import { PenTool, ZoomIn, ZoomOut, Move, Trash2, Undo2, Redo2, ChevronLeft, ChevronRight, Save, Square, MousePointer, Image, Tag, Hash, Grid3X3, Loader2, Database, XCircle } from "lucide-react";
+import { PenTool, ZoomIn, ZoomOut, Move, Trash2, Undo2, Redo2, ChevronLeft, ChevronRight, Save, Square, MousePointer, Image, Tag, Hash, Grid3X3, Loader2, Database, XCircle, Sparkles } from "lucide-react";
 import { useApi, apiPost, apiDelete, apiPut } from "@/lib/hooks";
 import { useWorkflowState } from "@/lib/useWorkflowState";
-import { NextStepCard, HelpCard, PageHeader, InfoBar } from "@/components/workflow";
+import { NextStepCard, HelpCard, PageHeader, InfoBar, SyntheticExpansionDialog } from "@/components/workflow";
 
 interface Dataset {
   id: string;
@@ -52,7 +52,6 @@ interface ClassRecord {
 }
 
 const CLASS_COLORS: Record<string, string> = {
-  "person": "#10b981",
   "Clay Diya": "#f59e0b", "Brass Diya": "#ef4444", "Hanging Diya": "#8b5cf6",
   "Multi-wick Diya": "#06b6d4", "Kuthu Vilakku": "#10b981", "Temple Bell": "#f97316",
   "Incense Holder": "#ec4899", "Ritual Plate": "#6366f1",
@@ -80,6 +79,22 @@ export default function AnnotationPage() {
   const [undoStack, setUndoStack] = useState<AnnotationRecord[][]>([]);
   const { state: workflow, refetch: refetchWorkflow } = useWorkflowState();
   const canvasRef = useRef<HTMLDivElement>(null);
+
+  // --- INVENTION 1 trigger: unlock the synthetic expansion dialog at 10 ---
+  // Annotated count comes from the workflow state (database truth), so the
+  // dialog fires exactly once per annotation session, no matter how the boxes
+  // were drawn or whether the page was reloaded.
+  const [expansionOpen, setExpansionOpen] = useState(false);
+  const [expansionPrompted, setExpansionPrompted] = useState(false);
+  const [expansionInfo, setExpansionInfo] = useState<{ augmented: number; train: number; val: number; test: number; leakage: string } | null>(null);
+  const annotatedTotal = workflow?.annotatedImages ?? 0;
+  const ANNOTATION_TARGET = 10;
+
+  useEffect(() => {
+    if (annotatedTotal < ANNOTATION_TARGET || expansionPrompted) return;
+    setExpansionPrompted(true);
+    setExpansionOpen(true);
+  }, [annotatedTotal, expansionPrompted]);
 
   // Load available datasets
   const { data: datasetsData, loading: datasetsLoading } = useApi<Dataset[]>("/api/datasets");
@@ -270,6 +285,48 @@ export default function AnnotationPage() {
   const imageSrc = currentImage
     ? `/api/serve/${currentImage.datasetId}/${currentImage.filename}`
     : null;
+
+  // Progress toward the 10-annotation gate + post-expansion summary banner.
+  const annotationUnlockBanner = (
+    <>
+      <div className="glass-card-solid p-3 flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-blue-500 flex items-center justify-center">
+            <Sparkles className="w-4 h-4 text-white" />
+          </div>
+          <div>
+            <p className="text-xs font-semibold">
+              Synthetic Expansion Engine: {Math.min(annotatedTotal, ANNOTATION_TARGET)}/{ANNOTATION_TARGET} annotated
+            </p>
+            <p className="text-[10px] text-[#64748b]">
+              {annotatedTotal >= ANNOTATION_TARGET
+                ? "Unlocked — generate 100 bbox-preserving samples"
+                : `Annotate ${ANNOTATION_TARGET - annotatedTotal} more image(s) to unlock 10 → 100 expansion`}
+            </p>
+          </div>
+        </div>
+        <div className="flex-1 min-w-[120px]">
+          <div className="progress-bar">
+            <div className="progress-fill" style={{ width: `${Math.min(100, (annotatedTotal / ANNOTATION_TARGET) * 100)}%` }} />
+          </div>
+        </div>
+        {annotatedTotal >= ANNOTATION_TARGET && (
+          <button onClick={() => setExpansionOpen(true)} className="btn-primary text-[10px] px-3 py-1">
+            <Sparkles className="w-3 h-3" /> Expand 10 → 100
+          </button>
+        )}
+      </div>
+
+      {expansionInfo && (
+        <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-xs flex flex-wrap items-center gap-x-4 gap-y-1">
+          <span className="font-semibold text-emerald-300">✅ {expansionInfo.augmented} synthetic samples generated</span>
+          <span className="text-emerald-200/80">
+            Auto-Split: {expansionInfo.train} train / {expansionInfo.val} val / {expansionInfo.test} test — Leakage: {expansionInfo.leakage}
+          </span>
+        </div>
+      )}
+    </>
+  );
 
   return (
     <div className="space-y-4">
@@ -514,6 +571,31 @@ export default function AnnotationPage() {
           </div>
         </div>
       </div>
+
+      {annotationUnlockBanner}
+
+      <SyntheticExpansionDialog
+        open={expansionOpen}
+        annotatedCount={annotatedTotal}
+        targetCount={100}
+        onClose={() => {
+          setExpansionOpen(false);
+          refetchWorkflow();
+        }}
+        onComplete={(res) => {
+          const split = res.auto_split;
+          if (split && typeof split.train === "number") {
+            setExpansionInfo({
+              augmented: res.augmented ?? 0,
+              train: split.train,
+              val: split.val,
+              test: split.test,
+              leakage: split.leakage,
+            });
+          }
+          refetchWorkflow();
+        }}
+      />
 
       {workflow && (
         <NextStepCard

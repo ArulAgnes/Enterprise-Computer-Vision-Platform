@@ -129,6 +129,11 @@ media/
 *.xml
 *.jsonl
 
+# ...but dependency manifests are documentation and MUST stay tracked
+# (without these exceptions the `*.txt` rule silently swallows them).
+!requirements.txt
+!**/requirements.txt
+
 # If you have intentionally committed configuration JSON,
 # explicitly force-add it with git add -f when appropriate.
 
