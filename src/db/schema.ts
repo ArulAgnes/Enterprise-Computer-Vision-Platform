@@ -82,6 +82,12 @@ export const images = pgTable("images", {
   classStatus: varchar("class_status", { length: 50 }).default("unassigned"),
   annotationStatus: varchar("annotation_status", { length: 50 }).default("unannotated"),
   qualityStatus: varchar("quality_status", { length: 20 }).default("pending"),
+  // --- VisionBharat V2 synthetic expansion lineage -------------------------
+  // parent_image_id links a synthetic sample to the annotated photo it came
+  // from; the leakage-free splitter keeps a parent and its children together.
+  parentImageId: uuid("parent_image_id"),
+  isAugmented: boolean("is_augmented").default(false),
+  datasetVersionId: uuid("dataset_version_id"),
   isDemo: boolean("is_demo").default(false),
   metadata: jsonb("metadata"),
   createdAt: timestamp("created_at").defaultNow(),
